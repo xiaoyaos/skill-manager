@@ -72,8 +72,8 @@ test("exposes short bin aliases", () => {
     fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8"),
   );
   assert.equal(pkg.bin["skill-manager"], "bin/skill-manager.js");
-  assert.equal(pkg.bin.sm, "bin/skill-manager.js");
   assert.equal(pkg.bin.skm, "bin/skill-manager.js");
+  assert.equal(pkg.bin.sm, undefined);
 });
 
 test("supports short command aliases", (t) => {

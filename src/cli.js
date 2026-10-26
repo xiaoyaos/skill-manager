@@ -117,7 +117,6 @@ function header() {
 
 function printHelp() {
   console.log(`Usage: skill-manager <command> [options]
-       sm <command> [options]      (short alias)
        skm <command> [options]     (short alias)
 
 Commands:

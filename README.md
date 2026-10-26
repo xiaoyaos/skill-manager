@@ -40,11 +40,11 @@ skill-manager --version
 skill-manager list
 
 # 短命令，完全等价
-sm --version
+skm --version
 skm list
 ```
 
-> 包名使用 `ujoin-skill-manager`，因为 npm 上的 `skill-manager` 已被其他项目占用。命令名保留 `skill-manager`，同时提供 `sm` 和 `skm` 两个短别名。
+> 包名使用 `ujoin-skill-manager`，因为 npm 上的 `skill-manager` 已被其他项目占用。命令名保留 `skill-manager`，同时提供 `skm` 短别名。
 
 维护者发布：
 
@@ -71,25 +71,25 @@ npm publish
 | `skill-manager link` | 把所有 skill 以 symlink 安装到 Agent（默认 OpenCode 全局；Codex 用 `--agent codex`） |
 | `skill-manager help` | 帮助 |
 
-短命令与子命令缩写（`skill-manager` / `sm` / `skm` 完全等价）：
+短命令与子命令缩写（`skill-manager` / `skm` 完全等价）：
 
 | 写法 | 等价于 |
 |---|---|
-| `sm`、`skm` | `skill-manager` |
-| `sm i`、`sm add` | `sm install` |
-| `sm ls` | `sm list` |
-| `sm un`、`sm rm` | `sm uninstall` |
-| `sm up`、`sm upgrade` | `sm update` |
-| `sm status` | `sm doctor` |
+| `skm` | `skill-manager` |
+| `skm i`、`skm add` | `skm install` |
+| `skm ls` | `skm list` |
+| `skm un`、`skm rm` | `skm uninstall` |
+| `skm up`、`skm upgrade` | `skm update` |
+| `skm status` | `skm doctor` |
 
 例如：
 
 ```bash
-sm                                  # 交互式菜单
-sm i git-weekly-report --agent codex
-sm ls
-sm up --check
-sm un git-weekly-report --agent codex --yes
+skm                                  # 交互式菜单
+skm i git-weekly-report --agent codex
+skm ls
+skm up --check
+skm un git-weekly-report --agent codex --yes
 ```
 
 通用参数：
