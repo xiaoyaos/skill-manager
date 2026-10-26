@@ -1,0 +1,3 @@
+interface:
+  display_name: "Nest 开发工具集"
+  short_description: "面向 nest-base 生态识别框架、执行开发并检查问题"

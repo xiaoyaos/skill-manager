@@ -1,0 +1,3 @@
+interface:
+  display_name: "Nest 组件库生成器"
+  short_description: "基于 nest-base 生态先选模式，再生成组件库"
