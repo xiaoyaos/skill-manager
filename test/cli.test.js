@@ -112,3 +112,39 @@ test("reports agent directories and passes doctor checks", (t) => {
   assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
   assert.match(doctor.stdout, /\[PASS\]/);
 });
+
+test("falls back to help when the menu runs without a TTY", (t) => {
+  const { env } = createEnvironment(t);
+
+  const result = runCli([], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Usage: skill-manager/);
+  assert.match(result.stdout, /交互式终端/);
+});
+
+test("requires --agent when installing without a TTY", (t) => {
+  const { env } = createEnvironment(t);
+
+  const result = runCli(["install", "nest-lib-gen"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--agent/);
+});
+
+test("requires --yes when uninstalling without a TTY", (t) => {
+  const { env, home } = createEnvironment(t);
+
+  const install = runCli(
+    ["install", "nest-lib-gen", "--agent", "codex", "--yes"],
+    env,
+  );
+  assert.equal(install.status, 0, install.stderr);
+
+  const target = path.join(home, ".codex", "skills", "nest-lib-gen");
+  const result = runCli(
+    ["uninstall", "nest-lib-gen", "--agent", "codex"],
+    env,
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--yes/);
+  assert.ok(fs.existsSync(path.join(target, "SKILL.md")));
+});

@@ -3,7 +3,7 @@ const path = require("node:path");
 
 const { PACKAGE_ROOT, readPackage } = require("./config");
 const { syncInstalls } = require("./install");
-const { commandExists, run } = require("./util");
+const { commandExists, run, runAsync } = require("./util");
 
 function parseSemver(value) {
   const match = String(value || "")
@@ -108,7 +108,7 @@ function gitState(root) {
   };
 }
 
-function checkGitUpdate(root, pkg, git) {
+async function checkGitUpdate(root, pkg, git) {
   if (!git.remote) {
     return {
       mode: "git",
@@ -133,7 +133,7 @@ function checkGitUpdate(root, pkg, git) {
     };
   }
 
-  const fetched = run("git", ["-C", root, "fetch", "--quiet", "--prune"], {
+  const fetched = await runAsync("git", ["-C", root, "fetch", "--quiet", "--prune"], {
     timeout: 60000,
   });
   if (fetched.status !== 0) {
@@ -207,8 +207,8 @@ function checkGitUpdate(root, pkg, git) {
   };
 }
 
-function checkNpmUpdate(pkg) {
-  const result = run("npm", ["view", pkg.name, "version", "--json"], {
+async function checkNpmUpdate(pkg) {
+  const result = await runAsync("npm", ["view", pkg.name, "version", "--json"], {
     timeout: 30000,
   });
   if (result.status !== 0) {
@@ -251,7 +251,7 @@ function checkNpmUpdate(pkg) {
   };
 }
 
-function checkUpdate(options = {}) {
+async function checkUpdate(options = {}) {
   const root = options.root || PACKAGE_ROOT;
   const pkg = options.pkg || readPackage();
   const git = gitState(root);
@@ -285,7 +285,7 @@ async function performUpdate(info, options = {}) {
   const stdio = quiet ? "pipe" : "inherit";
   let result;
   if (info.mode === "git") {
-    result = run("git", ["-C", info.root, "pull", "--ff-only"], {
+    result = await runAsync("git", ["-C", info.root, "pull", "--ff-only"], {
       stdio,
       timeout: 120000,
     });
@@ -295,7 +295,7 @@ async function performUpdate(info, options = {}) {
       );
     }
   } else {
-    result = run("npm", ["install", "-g", `${info.pkgName || ""}@latest`], {
+    result = await runAsync("npm", ["install", "-g", `${info.pkgName || ""}@latest`], {
       stdio,
       timeout: 180000,
     });

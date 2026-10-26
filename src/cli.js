@@ -19,20 +19,19 @@ const {
   syncInstalls,
   uninstallSkill,
 } = require("./install");
-const { hashDirectory, listSkills } = require("./skills");
+const {
+  hashDirectory,
+  listSkills,
+  readInstallMetadata,
+} = require("./skills");
 const { listInstalls, loadState, stateFile } = require("./state");
 const { checkUpdate, gitState, performUpdate } = require("./update");
-const {
-  ask,
-  choose,
-  chooseMany,
-  confirm,
-  createInterface,
-  isInteractive,
-  printLine,
-} = require("./ui");
+const tui = require("./tui");
+const { isInteractive } = tui;
+const pc = require("picocolors");
 const {
   exists,
+  isInside,
   padVisual,
   truncateVisual,
 } = require("./util");
@@ -109,15 +108,12 @@ function parseArgs(argv) {
   return parsed;
 }
 
-function header() {
-  const skills = listSkills();
-  console.log(`Skill Manager v${packageVersion()}`);
-  console.log(`Skill 库: ${SKILLS_DIR} (${skills.length} skills)`);
-}
-
 function printHelp() {
   console.log(`Usage: skill-manager <command> [options]
        skm <command> [options]     (short alias)
+
+不指定命令时启动交互式终端（需要 Node.js >= 20.12，且终端支持 TTY）。
+非交互环境自动回退为帮助信息。
 
 Commands:
   list                查看 skill 库和安装状态
@@ -227,24 +223,48 @@ function agentChoices(flags) {
   );
 }
 
-async function chooseAgent(rl, flags) {
+function displayPath(target) {
+  const home = process.env.HOME || "";
+  if (home && target === home) {
+    return "~";
+  }
+  if (home && target.startsWith(`${home}${path.sep}`)) {
+    return `~${target.slice(home.length)}`;
+  }
+  return target;
+}
+
+function expandHome(target) {
+  const value = String(target || "").trim();
+  if (value === "~") {
+    return process.env.HOME || value;
+  }
+  if (value.startsWith(`~${path.sep}`)) {
+    return path.join(process.env.HOME || "", value.slice(2));
+  }
+  return value;
+}
+
+async function chooseAgent(flags) {
   const agents = agentChoices(flags);
-  const custom = {
-    key: "custom",
-    label: "自定义 Agent 路径",
-    skillsDir: "",
-  };
-  const selected = await choose(
-    rl,
-    "请选择目标 Agent:",
-    [...agents, custom],
-    {
-      display: (agent) =>
-        agent.key === "custom"
-          ? agent.label
-          : `${agent.label}  ${agent.skillsDir}`,
-    },
-  );
+  const custom = { key: "custom", label: "自定义 Agent 路径", skillsDir: "" };
+  const selected = await tui.chooseOne({
+    message: "选择目标 Agent",
+    options: [
+      ...agents.map((agent) => ({
+        value: agent,
+        label: agent.label,
+        hint: displayPath(agent.skillsDir),
+      })),
+      {
+        value: custom,
+        label: custom.label,
+        hint: "手动输入 skills 目录",
+      },
+    ],
+    placeholder: "输入 Agent 名称过滤…",
+    maxItems: 10,
+  });
   if (!selected) {
     return null;
   }
@@ -252,23 +272,34 @@ async function chooseAgent(rl, flags) {
     return selected;
   }
 
-  const customName = await ask(rl, "请输入自定义 Agent 名称: ");
-  const customPath = await ask(rl, "请输入该 Agent 的 skills 目录绝对路径: ");
+  const customName = await tui.askText("自定义 Agent 名称", {
+    placeholder: "My Agent",
+    defaultValue: "Custom Agent",
+  });
+  if (customName === null) {
+    return null;
+  }
+  const customPath = await tui.askText("skills 目录绝对路径", {
+    placeholder: "~/.my-agent/skills",
+  });
   if (!customPath) {
     return null;
   }
   return resolveAgent({
-    customPath,
+    customPath: expandHome(customPath),
     customName: customName || "Custom Agent",
   });
 }
 
-async function chooseInstallMode(rl) {
-  const selected = await choose(rl, "请选择安装方式:", [
-    { key: "copy", label: "复制（推荐，独立副本）" },
-    { key: "link", label: "符号链接（本地开发，随仓库更新）" },
-  ], { display: (item) => item.label });
-  return selected ? selected.key : null;
+async function chooseInstallMode() {
+  return tui.chooseOne({
+    message: "选择安装方式",
+    options: [
+      { value: "copy", label: "复制安装", hint: "独立副本，推荐" },
+      { value: "link", label: "符号链接", hint: "本地开发，随仓库更新" },
+    ],
+    maxItems: 4,
+  });
 }
 
 function countSkillDirs(dirPath) {
@@ -301,19 +332,36 @@ function installedNamesForAgent(agent) {
   return [...names].sort((left, right) => left.localeCompare(right));
 }
 
-async function maybeWithRl(context, action) {
-  if (context.rl) {
-    return action(context.rl);
+function managedSkillNames(agent) {
+  const names = new Set(
+    listInstalls()
+      .filter((install) => install.agentKey === agent.key)
+      .map((install) => install.skill),
+  );
+  if (!exists(agent.skillsDir)) {
+    return names;
   }
-  if (!isInteractive()) {
-    return action(null);
+
+  for (const entry of fs.readdirSync(agent.skillsDir, { withFileTypes: true })) {
+    const target = path.join(agent.skillsDir, entry.name);
+    if (!exists(path.join(target, "SKILL.md"))) {
+      continue;
+    }
+    if (entry.isSymbolicLink()) {
+      try {
+        const link = fs.readlinkSync(target);
+        const resolved = path.resolve(path.dirname(target), link);
+        if (isInside(resolved, SKILLS_DIR)) {
+          names.add(entry.name);
+        }
+      } catch {
+        // Broken symlink; uninstall reports it separately.
+      }
+    } else if (readInstallMetadata(target)) {
+      names.add(entry.name);
+    }
   }
-  const rl = createInterface();
-  try {
-    return await action(rl);
-  } finally {
-    rl.close();
-  }
+  return names;
 }
 
 function printInstallResult(result, invokeTip) {
@@ -334,73 +382,108 @@ function printInstallResult(result, invokeTip) {
   console.log(`       调用提示：${invokeTip.replaceAll("<installed-path>", result.target).replaceAll("<skill-name>", result.skill.dirName)}`);
 }
 
+function formatInstallResultTui(result) {
+  if (result.status === "already") {
+    return `${pc.yellow("○")} ${result.skill.dirName} 已安装`;
+  }
+  if (result.status === "would-install") {
+    return `${pc.dim("○")} ${result.skill.dirName} → ${result.agent.label} ${pc.dim("(dry-run)")}`;
+  }
+  return `${pc.green("✓")} ${pc.bold(result.skill.dirName)} → ${result.agent.label} ${pc.dim(`(${result.mode})`)}\n  ${pc.dim(result.target)}`;
+}
+
 async function runInstall(flags, positional, context = {}) {
-  return maybeWithRl(context, async (rl) => {
-    let agent = resolveAgentFromFlags(flags);
+  const interactive = context.interactive ?? isInteractive();
+  let agent = resolveAgentFromFlags(flags);
+  if (!agent) {
+    if (!interactive) {
+      throw new Error("非交互环境请指定 --agent，或使用 --path");
+    }
+    agent = await chooseAgent(flags);
     if (!agent) {
-      if (!rl) {
-        throw new Error("非交互环境请指定 --agent，或使用 --path");
-      }
-      agent = await chooseAgent(rl, flags);
-      if (!agent) {
-        console.log("已取消。");
-        return 0;
-      }
-    }
-
-    let selected = [];
-    if (flags.all) {
-      selected = listSkills();
-    } else if (positional.length > 0) {
-      selected = positional.map((name) => {
-        const skill = listSkills().find(
-          (item) => item.dirName === name || item.name === name,
-        );
-        if (!skill) {
-          throw new Error(`skill not found: ${name}`);
-        }
-        return skill;
-      });
-    } else if (rl) {
-      const installed = new Set(installedNamesForAgent(agent));
-      selected = await chooseMany(
-        rl,
-        `请选择要安装到 ${agent.label} 的 skill:`,
-        listSkills(),
-        {
-          display: (skill) =>
-            `${skill.dirName}${installed.has(skill.dirName) ? " [已安装]" : ""}  ${truncateVisual(skill.shortDescription || skill.description, 60)}`,
-        },
-      );
-    }
-
-    if (selected.length === 0) {
-      console.log("未选择 skill。");
+      await tui.cancel("已取消安装");
       return 0;
     }
+  }
 
-    let mode = resolveMode(flags);
-    if (!mode) {
-      mode = rl ? await chooseInstallMode(rl) : "copy";
-      if (!mode) {
-        console.log("已取消。");
-        return 0;
-      }
-    }
-
-    if (!flags.yes && rl && !flags["dry-run"]) {
-      const ok = await confirm(
-        rl,
-        `确认将 ${selected.length} 个 skill 以 ${mode} 方式安装到 ${agent.label}？`,
-        { defaultYes: true },
+  let selected = [];
+  if (flags.all) {
+    selected = listSkills();
+  } else if (positional.length > 0) {
+    selected = positional.map((name) => {
+      const skill = listSkills().find(
+        (item) => item.dirName === name || item.name === name,
       );
-      if (!ok) {
-        console.log("已取消。");
+      if (!skill) {
+        throw new Error(`skill not found: ${name}`);
+      }
+      return skill;
+    });
+  } else if (interactive) {
+    const installed = new Set(installedNamesForAgent(agent));
+    const picked = await tui.chooseMany({
+      message: `选择要安装到 ${agent.label} 的 skill`,
+      options: listSkills().map((skill) => ({
+        value: skill,
+        label: `${skill.dirName}${installed.has(skill.dirName) ? " [已安装]" : ""}`,
+        hint: truncateVisual(
+          skill.shortDescription || skill.description,
+          72,
+        ),
+      })),
+      placeholder: "输入名称或描述过滤…",
+      maxItems: 12,
+      required: true,
+    });
+    if (!picked) {
+      await tui.cancel("已取消安装");
+      return 0;
+    }
+    selected = picked;
+  }
+
+  if (selected.length === 0) {
+    if (interactive) {
+      await tui.log("未选择 skill", "warn");
+    } else {
+      console.log("未选择 skill。");
+    }
+    return 0;
+  }
+
+  let mode = resolveMode(flags);
+  if (!mode) {
+    if (!interactive) {
+      mode = "copy";
+    } else {
+      mode = await chooseInstallMode();
+      if (!mode) {
+        await tui.cancel("已取消安装");
         return 0;
       }
     }
+  }
 
+  if (interactive && !flags.yes && !flags["dry-run"]) {
+    await tui.note(
+      [
+        `${pc.dim("Agent")}   ${agent.label}`,
+        `${pc.dim("目录")}    ${displayPath(agent.skillsDir)}`,
+        `${pc.dim("Skills")}  ${selected.map((skill) => skill.dirName).join(", ")}`,
+        `${pc.dim("方式")}    ${mode === "copy" ? "复制" : "符号链接"}`,
+      ].join("\n"),
+      "安装确认",
+    );
+    const ok = await tui.confirmAction("开始安装？", { initialValue: true });
+    if (!ok) {
+      await tui.cancel("已取消安装");
+      return 0;
+    }
+  }
+
+  const run = () => {
     let failures = 0;
+    const lines = [];
     for (const skill of selected) {
       try {
         const result = installSkill({
@@ -411,74 +494,154 @@ async function runInstall(flags, positional, context = {}) {
           dryRun: Boolean(flags["dry-run"]),
           packageVersion: packageVersion(),
         });
-        printInstallResult(result, agent.invokeTip);
+        if (interactive) {
+          lines.push(formatInstallResultTui(result));
+        } else {
+          printInstallResult(result, agent.invokeTip);
+        }
       } catch (error) {
         failures += 1;
         if (error.code === "EEXIST") {
-          console.log(
-            `[WARN] ${skill.dirName} 已存在于 ${agent.label}；使用 --force 覆盖：${error.message}`,
-          );
+          const message = `${skill.dirName} 已存在于 ${agent.label}；使用 --force 覆盖`;
+          if (interactive) {
+            lines.push(`${pc.yellow("!")} ${message}`);
+          } else {
+            console.log(`[WARN] ${message}：${error.message}`);
+          }
+        } else if (interactive) {
+          lines.push(`${pc.red("✗")} ${skill.dirName}: ${error.message}`);
         } else {
           console.log(`[FAIL] ${skill.dirName}: ${error.message}`);
         }
       }
     }
-    return failures > 0 ? 1 : 0;
-  });
+    return { failures, lines };
+  };
+
+  let outcome;
+  if (interactive) {
+    outcome = await tui.withSpinner(
+      {
+        start: "安装中…",
+        success: (result) =>
+          result.failures > 0
+            ? `安装结束：${result.failures} 个失败`
+            : `安装完成：${selected.length} 个 skill`,
+        failure: "安装失败",
+      },
+      run,
+    );
+    if (outcome.lines.length > 0) {
+      await tui.note(
+        outcome.lines.join("\n"),
+        outcome.failures > 0 ? "安装结果（有失败）" : "安装结果",
+      );
+    }
+  } else {
+    outcome = run();
+  }
+
+  return outcome.failures > 0 ? 1 : 0;
 }
 
 async function runUninstall(flags, positional, context = {}) {
-  return maybeWithRl(context, async (rl) => {
-    let agent = resolveAgentFromFlags(flags);
+  const interactive = context.interactive ?? isInteractive();
+  let agent = resolveAgentFromFlags(flags);
+  if (!agent) {
+    if (!interactive) {
+      throw new Error("非交互环境请指定 --agent，或使用 --path");
+    }
+    agent = await chooseAgent(flags);
     if (!agent) {
-      if (!rl) {
-        throw new Error("非交互环境请指定 --agent，或使用 --path");
-      }
-      agent = await chooseAgent(rl, flags);
-      if (!agent) {
-        console.log("已取消。");
-        return 0;
-      }
-    }
-
-    let names = [];
-    if (flags.all) {
-      names = installedNamesForAgent(agent);
-    } else if (positional.length > 0) {
-      names = positional;
-    } else if (rl) {
-      const installed = installedNamesForAgent(agent);
-      if (installed.length === 0) {
-        console.log(`[INFO] ${agent.label} 没有已安装的 skill。`);
-        return 0;
-      }
-      names = await chooseMany(
-        rl,
-        `请选择要从 ${agent.label} 卸载的 skill:`,
-        installed,
-      );
-    }
-
-    if (names.length === 0) {
-      console.log("未选择 skill。");
+      await tui.cancel("已取消卸载");
       return 0;
     }
+  }
 
-    if (!flags.yes && rl && !flags["dry-run"]) {
-      const ok = await confirm(
-        rl,
-        `确认从 ${agent.label} 卸载 ${names.length} 个 skill？`,
+  const installed = installedNamesForAgent(agent);
+  let names = [];
+  if (flags.all) {
+    names = installed;
+  } else if (positional.length > 0) {
+    names = positional;
+  } else if (interactive) {
+    if (installed.length === 0) {
+      await tui.log(`${agent.label} 没有已安装的 skill`, "info");
+      return 0;
+    }
+    const managed = managedSkillNames(agent);
+    const picked = await tui.chooseMany({
+      message: `选择要从 ${agent.label} 卸载的 skill`,
+      options: installed.map((name) => ({
+        value: name,
+        label: managed.has(name) ? name : `${name} [未托管]`,
+        hint: managed.has(name)
+          ? displayPath(path.join(agent.skillsDir, name))
+          : "未由本 CLI 安装，需要强制删除",
+      })),
+      placeholder: "输入名称过滤…",
+      maxItems: 12,
+      required: true,
+    });
+    if (!picked) {
+      await tui.cancel("已取消卸载");
+      return 0;
+    }
+    names = picked;
+  }
+
+  if (names.length === 0) {
+    if (interactive) {
+      await tui.log("未选择 skill", "warn");
+    } else {
+      console.log("未选择 skill。");
+    }
+    return 0;
+  }
+
+  if (!interactive && !flags.yes && !flags["dry-run"]) {
+    throw new Error("非交互卸载请加 --yes");
+  }
+
+  const managed = managedSkillNames(agent);
+  const unmanaged = names.filter((name) => !managed.has(name));
+
+  if (interactive && !flags.yes && !flags["dry-run"]) {
+    const lines = [
+      `${pc.dim("Agent")}   ${agent.label}`,
+      `${pc.dim("目录")}    ${displayPath(agent.skillsDir)}`,
+      `${pc.dim("Skills")}  ${names.join(", ")}`,
+    ];
+    if (unmanaged.length > 0) {
+      lines.push(
+        `${pc.yellow("!")} 未托管，将被强制删除: ${unmanaged.join(", ")}`,
       );
-      if (!ok) {
-        console.log("已取消。");
+    }
+    await tui.note(lines.join("\n"), "卸载确认");
+
+    const ok = await tui.confirmAction(
+      `确认从 ${agent.label} 卸载 ${names.length} 个 skill？`,
+      { initialValue: true },
+    );
+    if (!ok) {
+      await tui.cancel("已取消卸载");
+      return 0;
+    }
+    if (unmanaged.length > 0) {
+      const forceOk = await tui.confirmAction(
+        `强制删除 ${unmanaged.length} 个未托管目录？此操作不可恢复`,
+        { initialValue: false },
+      );
+      if (!forceOk) {
+        await tui.cancel("已取消卸载");
         return 0;
       }
     }
-    if (!rl && !flags.yes && !flags["dry-run"]) {
-      throw new Error("非交互卸载请加 --yes");
-    }
+  }
 
+  const run = () => {
     let failures = 0;
+    const lines = [];
     for (const name of names) {
       try {
         const resolved = listSkills().find(
@@ -488,10 +651,20 @@ async function runUninstall(flags, positional, context = {}) {
         const result = uninstallSkill({
           skillName: targetName,
           agent,
-          force: Boolean(flags.force),
+          force: Boolean(flags.force) || unmanaged.includes(name),
           dryRun: Boolean(flags["dry-run"]),
         });
-        if (result.status === "missing") {
+        if (interactive) {
+          if (result.status === "missing") {
+            lines.push(`${pc.yellow("○")} ${name} 未安装`);
+          } else if (result.status === "would-uninstall") {
+            lines.push(
+              `${pc.dim("○")} 将卸载 ${name} ${pc.dim(result.target)}`,
+            );
+          } else {
+            lines.push(`${pc.green("✓")} 已卸载 ${pc.bold(name)}`);
+          }
+        } else if (result.status === "missing") {
           console.log(`[SKIP] ${name} 未安装：${result.target}`);
         } else if (result.status === "would-uninstall") {
           console.log(`[DRY-RUN] 卸载 ${name} <- ${agent.label}: ${result.target}`);
@@ -500,11 +673,40 @@ async function runUninstall(flags, positional, context = {}) {
         }
       } catch (error) {
         failures += 1;
-        console.log(`[FAIL] ${name}: ${error.message}`);
+        if (interactive) {
+          lines.push(`${pc.red("✗")} ${name}: ${error.message}`);
+        } else {
+          console.log(`[FAIL] ${name}: ${error.message}`);
+        }
       }
     }
-    return failures > 0 ? 1 : 0;
-  });
+    return { failures, lines };
+  };
+
+  let outcome;
+  if (interactive) {
+    outcome = await tui.withSpinner(
+      {
+        start: "卸载中…",
+        success: (result) =>
+          result.failures > 0
+            ? `卸载结束：${result.failures} 个失败`
+            : `卸载完成：${names.length} 个 skill`,
+        failure: "卸载失败",
+      },
+      run,
+    );
+    if (outcome.lines.length > 0) {
+      await tui.note(
+        outcome.lines.join("\n"),
+        outcome.failures > 0 ? "卸载结果（有失败）" : "卸载结果",
+      );
+    }
+  } else {
+    outcome = run();
+  }
+
+  return outcome.failures > 0 ? 1 : 0;
 }
 
 function printSkillTable(skills, installs, options = {}) {
@@ -666,63 +868,82 @@ function runAgents(flags) {
   return 0;
 }
 
-function printUpdateInfo(info) {
-  console.log(`模式: ${info.mode === "git" ? "git checkout" : "npm global"}`);
-  console.log(`目录: ${info.root}`);
-  console.log(`当前版本: ${info.current}`);
+function updateInfoLines(info) {
+  const lines = [
+    `模式: ${info.mode === "git" ? "git checkout" : "npm global"}`,
+    `目录: ${info.root}`,
+    `当前版本: ${info.current}`,
+  ];
   if (info.branch) {
-    console.log(`分支: ${info.branch}${info.upstream ? ` -> ${info.upstream}` : ""}`);
+    lines.push(`分支: ${info.branch}${info.upstream ? ` -> ${info.upstream}` : ""}`);
   }
 
   switch (info.status) {
     case "available":
-      console.log(
+      lines.push(
         `[UPDATE] 有新版本: ${info.current}${info.latest ? ` -> ${info.latest}` : ""}${
           info.behind ? `（落后 ${info.behind} 个提交）` : ""
         }`,
       );
       if (info.ahead) {
-        console.log(`[WARN] 本地领先 upstream ${info.ahead} 个提交`);
+        lines.push(`[WARN] 本地领先 upstream ${info.ahead} 个提交`);
       }
       if (info.dirty) {
-        console.log("[WARN] Git 工作区有未提交改动，自动更新会被拒绝");
+        lines.push("[WARN] Git 工作区有未提交改动，自动更新会被拒绝");
       }
       break;
     case "up-to-date":
-      console.log(`[PASS] 已是最新版本${info.ahead ? `（本地领先 ${info.ahead} 个提交）` : ""}`);
+      lines.push(
+        `[PASS] 已是最新版本${info.ahead ? `（本地领先 ${info.ahead} 个提交）` : ""}`,
+      );
       break;
     case "no-remote":
-      console.log(`[WARN] ${info.message}`);
-      break;
     case "no-upstream":
-      console.log(`[WARN] ${info.message}`);
+      lines.push(`[WARN] ${info.message}`);
       break;
     case "fetch-failed":
-      console.log(`[FAIL] 拉取远端失败: ${info.message}`);
+      lines.push(`[FAIL] 拉取远端失败: ${info.message}`);
       break;
     case "unpublished":
-      console.log(`[WARN] ${info.message}`);
-      console.log("[INFO] 当前是本地/未发布安装；更新请回到源码仓库执行 git pull，或重新 npm install -g <path>");
+      lines.push(`[WARN] ${info.message}`);
+      lines.push(
+        "[INFO] 当前是本地/未发布安装；更新请回到源码仓库执行 git pull，或重新 npm install -g <path>",
+      );
       break;
     default:
-      console.log(`[INFO] ${info.message || info.status}`);
+      lines.push(`[INFO] ${info.message || info.status}`);
       break;
+  }
+  return lines;
+}
+
+function printUpdateInfo(info) {
+  for (const line of updateInfoLines(info)) {
+    console.log(line);
   }
 }
 
-function summarizeSyncResults(results) {
-  if (results.length === 0) {
-    return;
-  }
+function syncCounts(results) {
   const counts = new Map();
   for (const result of results) {
     counts.set(result.status, (counts.get(result.status) || 0) + 1);
   }
-  console.log(
-    `[SYNC] ${[...counts.entries()]
-      .map(([status, count]) => `${status}: ${count}`)
-      .join(", ")}`,
-  );
+  return [...counts.entries()]
+    .map(([status, count]) => `${status}: ${count}`)
+    .join(", ");
+}
+
+function formatSyncSummary(results) {
+  const counts = syncCounts(results);
+  return counts ? `同步: ${counts}` : null;
+}
+
+function summarizeSyncResults(results) {
+  const counts = syncCounts(results);
+  if (!counts) {
+    return;
+  }
+  console.log(`[SYNC] ${counts}`);
   for (const result of results) {
     if (["conflict", "missing-source"].includes(result.status)) {
       console.log(
@@ -733,45 +954,83 @@ function summarizeSyncResults(results) {
 }
 
 async function runUpdate(flags, context = {}) {
-  return maybeWithRl(context, async (rl) => {
-    const info = checkUpdate();
+  const interactive = context.interactive ?? isInteractive();
+  const noSync = Boolean(flags["no-sync"]);
+
+  let info;
+  if (interactive) {
+    info = await tui.withSpinner(
+      { start: "检查更新…", success: "检查完成", failure: "检查更新失败" },
+      () => checkUpdate(),
+    );
+    await tui.note(updateInfoLines(info).join("\n"), "更新检查");
+  } else {
+    info = await checkUpdate();
     printUpdateInfo(info);
+  }
 
-    if (flags.check) {
-      return info.status === "fetch-failed" ? 1 : 0;
-    }
-    if (info.status !== "available") {
-      return info.status === "fetch-failed" ? 1 : 0;
-    }
+  if (flags.check) {
+    return info.status === "fetch-failed" ? 1 : 0;
+  }
+  if (info.status !== "available") {
+    return info.status === "fetch-failed" ? 1 : 0;
+  }
 
-    if (!flags.yes && !rl) {
+  if (!interactive) {
+    if (!flags.yes) {
       console.log("[INFO] 非交互环境，确认更新请加 --yes");
       return 0;
     }
-
-    const result = await performUpdate(info, {
-      yes: Boolean(flags.yes),
-      noSync: Boolean(flags["no-sync"]),
-      confirm: flags.yes
-        ? null
-        : () => confirm(rl, "确认执行更新？", { defaultYes: true }),
-    });
-
-    if (result.status === "cancelled") {
-      console.log("已取消更新。");
-      return 0;
-    }
-    if (result.status === "needs-confirmation") {
-      console.log("[INFO] 需要确认，请加 --yes");
-      return 0;
-    }
+    const result = await performUpdate(info, { yes: true, noSync });
     if (result.status === "updated") {
       console.log(`[PASS] 更新完成，当前版本 ${result.version}`);
       summarizeSyncResults(result.syncResults);
       console.log("[INFO] 重新打开 Agent 会话后生效。");
     }
     return 0;
-  });
+  }
+
+  if (!flags.yes) {
+    const ok = await tui.confirmAction("确认执行更新？", {
+      initialValue: true,
+    });
+    if (!ok) {
+      await tui.cancel("已取消更新");
+      return 0;
+    }
+  }
+
+  const result = await tui.withSpinner(
+    {
+      start: info.mode === "git" ? "正在 git pull…" : "正在 npm 更新…",
+      success: (outcome) =>
+        outcome.status === "updated"
+          ? `更新完成：v${outcome.version}`
+          : "已跳过",
+      failure: "更新失败",
+    },
+    () =>
+      performUpdate(info, {
+        yes: true,
+        noSync,
+        quiet: true,
+      }),
+  );
+
+  if (result.status === "cancelled") {
+    await tui.cancel("已取消更新");
+    return 0;
+  }
+  if (result.status === "updated") {
+    const lines = [`${pc.green("✓")} 当前版本 ${pc.bold(result.version)}`];
+    const summary = formatSyncSummary(result.syncResults);
+    if (summary) {
+      lines.push(summary);
+    }
+    await tui.note(lines.join("\n"), "更新完成");
+    await tui.outro("重新打开 Agent 会话后生效");
+  }
+  return 0;
 }
 
 function runSync(flags) {
@@ -806,13 +1065,13 @@ function addCheck(checks, level, message) {
   checks.push({ level, message });
 }
 
-function runDoctor(flags) {
+function collectDoctorChecks(flags) {
   const checks = [];
   const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
-  if (nodeMajor > 18 || (nodeMajor === 18 && nodeMinor >= 12)) {
+  if (nodeMajor > 20 || (nodeMajor === 20 && nodeMinor >= 12)) {
     addCheck(checks, "PASS", `Node.js ${process.versions.node}`);
   } else {
-    addCheck(checks, "FAIL", `Node.js ${process.versions.node}，需要 >= 18.12`);
+    addCheck(checks, "FAIL", `Node.js ${process.versions.node}，需要 >= 20.12`);
   }
 
   const pkg = readPackage();
@@ -932,73 +1191,135 @@ function runDoctor(flags) {
     }
   }
 
-  const errors = checks.filter((check) => check.level === "FAIL").length;
-  const warnings = checks.filter((check) => check.level === "WARN").length;
+  return checks;
+}
+
+function printDoctorChecks(checks) {
   for (const check of checks) {
     console.log(`[${check.level}] ${check.message}`);
   }
+  const errors = checks.filter((check) => check.level === "FAIL").length;
+  const warnings = checks.filter((check) => check.level === "WARN").length;
   console.log();
   console.log(
     `[${errors > 0 ? "FAIL" : "PASS"}] ${checks.length} 项检查，${errors} error(s)，${warnings} warning(s)`,
   );
+}
+
+function formatDoctorChecks(checks) {
+  const symbol = {
+    PASS: pc.green("✓"),
+    FAIL: pc.red("✗"),
+    WARN: pc.yellow("!"),
+    INFO: pc.blue("ℹ"),
+  };
+  return checks
+    .map((check) => `${symbol[check.level] || "·"} ${check.message}`)
+    .join("\n");
+}
+
+async function runDoctor(flags, context = {}) {
+  const interactive = context.interactive ?? isInteractive();
+  if (!interactive) {
+    const checks = collectDoctorChecks(flags);
+    printDoctorChecks(checks);
+    return checks.some((check) => check.level === "FAIL") ? 1 : 0;
+  }
+
+  const checks = await tui.withSpinner(
+    { start: "检查环境中…", success: "检查完成", failure: "检查失败" },
+    async () => collectDoctorChecks(flags),
+  );
+  await tui.note(formatDoctorChecks(checks), "环境诊断");
+  const errors = checks.filter((check) => check.level === "FAIL").length;
+  const warnings = checks.filter((check) => check.level === "WARN").length;
+  await tui.outro(
+    errors > 0
+      ? `发现 ${errors} 个错误，${warnings} 个警告`
+      : warnings > 0
+        ? `通过，${warnings} 个警告`
+        : "全部检查通过",
+  );
   return errors > 0 ? 1 : 0;
 }
 
-async function runMenu(context) {
-  const rl = context.rl || createInterface();
-  const ownsRl = !context.rl;
-  try {
-    while (true) {
-      printLine();
-      header();
-      printLine();
-      console.log("1) 查看 skill 库");
-      console.log("2) 安装 skill 到 Agent");
-      console.log("3) 卸载 Agent 中的 skill");
-      console.log("4) 检查更新");
-      console.log("5) 更新并同步");
-      console.log("6) 环境诊断");
-      console.log("7) 查看 Agent 目录");
-      console.log("0) 退出");
+async function runMenu() {
+  if (!isInteractive()) {
+    printHelp();
+    return 0;
+  }
 
-      const choice = await ask(rl, "请选择: ");
-      try {
-        switch (choice) {
-          case "1":
-            runList({});
-            break;
-          case "2":
-            await runInstall({}, [], { rl });
-            break;
-          case "3":
-            await runUninstall({}, [], { rl });
-            break;
-          case "4":
-            await runUpdate({ check: true }, { rl });
-            break;
-          case "5":
-            await runUpdate({}, { rl });
-            break;
-          case "6":
-            runDoctor({});
-            break;
-          case "7":
-            runAgents({});
-            break;
-          case "0":
-            console.log("已退出。");
-            return 0;
-          default:
-            console.log("输入无效，请重试。");
-            break;
-        }
-      } catch (error) {
-        console.log(`[ERROR] ${error.message}`);
-      }
+  const skills = listSkills();
+  let installCount = 0;
+  try {
+    installCount = listInstalls().length;
+  } catch {
+    installCount = 0;
+  }
+
+  await tui.banner({
+    version: packageVersion(),
+    skillCount: skills.length,
+    installCount,
+  });
+
+  while (true) {
+    const choice = await tui.chooseMenu("你想做什么？", [
+      {
+        value: "list",
+        label: "查看 Skill 库",
+        hint: `${skills.length} 个 skill`,
+      },
+      {
+        value: "install",
+        label: "安装 Skill 到 Agent",
+        hint: "Codex / OpenCode / Claude / Cursor",
+      },
+      {
+        value: "uninstall",
+        label: "卸载 Agent 中的 Skill",
+        hint: "清理已安装副本",
+      },
+      { value: "check", label: "检查更新", hint: "git / npm registry" },
+      { value: "update", label: "更新并同步", hint: "pull + sync" },
+      { value: "doctor", label: "环境诊断", hint: "目录 / 状态 / 副本" },
+      { value: "agents", label: "查看 Agent 目录", hint: "支持列表" },
+      { value: "exit", label: "退出", hint: "bye" },
+    ]);
+
+    if (!choice || choice === "exit") {
+      await tui.outro("已退出 Skill Manager");
+      return 0;
     }
-  } finally {
-    if (ownsRl) {
-      rl.close();
+
+    try {
+      switch (choice) {
+        case "list":
+          runList({});
+          break;
+        case "install":
+          await runInstall({}, [], { interactive: true });
+          break;
+        case "uninstall":
+          await runUninstall({}, [], { interactive: true });
+          break;
+        case "check":
+          await runUpdate({ check: true }, { interactive: true });
+          break;
+        case "update":
+          await runUpdate({}, { interactive: true });
+          break;
+        case "doctor":
+          await runDoctor({}, { interactive: true });
+          break;
+        case "agents":
+          runAgents({});
+          break;
+        default:
+          break;
+      }
+    } catch (error) {
+      await tui.log(error.message, "error");
     }
   }
 }
@@ -1039,7 +1360,7 @@ async function main(argv = process.argv.slice(2)) {
       case "sync":
         return runSync(parsed.flags);
       case "doctor":
-        return runDoctor(parsed.flags);
+        return await runDoctor(parsed.flags);
       case "link": {
         const flags = {
           ...parsed.flags,
@@ -1050,7 +1371,7 @@ async function main(argv = process.argv.slice(2)) {
         return await runInstall(flags, []);
       }
       case "menu":
-        return await runMenu({});
+        return await runMenu();
       case "help":
         printHelp();
         return 0;

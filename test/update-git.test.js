@@ -51,7 +51,7 @@ test("detects and applies a git update", async (t) => {
   git(local, "config", "user.email", "test@example.com");
   git(local, "config", "user.name", "Test");
 
-  const before = checkUpdate({ root: local });
+  const before = await checkUpdate({ root: local });
   assert.equal(before.status, "up-to-date");
 
   writePackage(seed, "0.2.1");
@@ -60,7 +60,7 @@ test("detects and applies a git update", async (t) => {
   git(seed, "commit", "-m", "release 0.2.1");
   git(seed, "push");
 
-  const available = checkUpdate({ root: local });
+  const available = await checkUpdate({ root: local });
   assert.equal(available.status, "available");
   assert.equal(available.latest, "0.2.1");
   assert.equal(available.behind, 1);

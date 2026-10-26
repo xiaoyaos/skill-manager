@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 function lstatSafe(target) {
   try {
@@ -36,6 +36,57 @@ function run(command, args, options = {}) {
   return spawnSync(command, args, {
     encoding: "utf8",
     ...options,
+  });
+}
+
+function runAsync(command, args, options = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      stdio: options.stdio || "pipe",
+      cwd: options.cwd,
+      env: options.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+
+    if (child.stdout) {
+      child.stdout.setEncoding("utf8").on("data", (chunk) => {
+        stdout += chunk;
+      });
+    }
+    if (child.stderr) {
+      child.stderr.setEncoding("utf8").on("data", (chunk) => {
+        stderr += chunk;
+      });
+    }
+
+    const timer = options.timeout
+      ? setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGTERM");
+        }, options.timeout)
+      : null;
+
+    const finish = (result) => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      resolve(result);
+    };
+
+    child.on("error", (error) => {
+      finish({ status: 1, stdout, stderr: stderr || error.message, error, timedOut });
+    });
+    child.on("close", (code, signal) => {
+      finish({
+        status: code === null ? 1 : code,
+        stdout,
+        stderr,
+        signal,
+        timedOut,
+      });
+    });
   });
 }
 
@@ -125,6 +176,7 @@ module.exports = {
   readJson,
   removePath,
   run,
+  runAsync,
   timestamp,
   truncateVisual,
   visualWidth,

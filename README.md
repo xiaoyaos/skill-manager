@@ -20,6 +20,8 @@ UJoin 自研 AI Skills 的全生命周期管理 CLI：查看 skill 库、安装�
 
 ## 全局安装
 
+要求 Node.js >= 20.12（交互式终端依赖 `@clack/prompts`）。
+
 ```bash
 cd packages/skill-manager
 
@@ -59,7 +61,7 @@ npm publish
 
 | 命令 | 作用 |
 |---|---|
-| `skill-manager` | 交互式菜单（默认） |
+| `skill-manager` | 交互式终端（默认） |
 | `skill-manager list` | 查看 skill 库、描述和安装状态 |
 | `skill-manager install [skill...]` | 安装 skill 到 Agent |
 | `skill-manager uninstall [skill...]` | 从 Agent 卸载 skill |
@@ -143,20 +145,39 @@ skill-manager uninstall git-weekly-report --agent codex
 skill-manager uninstall --all --agent codex --yes
 ```
 
-## 交互式菜单
+## 交互式终端
 
-直接运行 `skill-manager`：
+直接运行 `skill-manager` 或 `skm` 会进入基于 [`@clack/prompts`](https://github.com/bombshell-dev/clack) 的交互式终端（与 `vercel-labs/skills` 同一套交互方案）：
 
 ```text
-1) 查看 skill 库
-2) 安装 skill 到 Agent
-3) 卸载 Agent 中的 skill
-4) 检查更新
-5) 更新并同步
-6) 环境诊断
-7) 查看 Agent 目录
-0) 退出
+┌  Skill Manager v0.3.0
+│
+◇  当前状态
+│  Skill 库  4 个
+│  已安装    1 个副本
+│
+◆  你想做什么？
+│  ● 查看 Skill 库 (4 个 skill)
+│  ○ 安装 Skill 到 Agent
+│  ○ 卸载 Agent 中的 Skill
+│  ○ 检查更新
+│  ○ 更新并同步
+│  ○ 环境诊断
+│  ○ 查看 Agent 目录
+│  ○ 退出
 ```
+
+操作方式：
+
+| 按键 | 作用 |
+|---|---|
+| `↑` / `↓` | 移动选项 |
+| `Enter` | 确认 / 执行 |
+| 直接输入 | 在 Agent / skill 列表中搜索过滤 |
+| `Tab` | 多选时勾选 / 取消勾选 |
+| `Esc` / `Ctrl+C` | 取消当前操作 |
+
+非 TTY 环境（管道、CI、脚本）不会启动交互界面，而是回退为帮助信息；脚本中请使用显式命令和 `--yes`。
 
 Agent 列表 Codex 排在最前：
 
@@ -165,6 +186,8 @@ Agent 列表 Codex 排在最前：
 - OpenCode (Global) → `~/.agents/skills`
 - Claude Code / Cursor / Windsurf
 - 自定义 Agent 路径
+
+卸载时会标记“未托管”的目录：这类目录不是本 CLI 安装的，需要二次确认才会强制删除。
 
 ## 更新机制
 
@@ -265,7 +288,7 @@ packages/skill-manager/
 │   ├── install.js             # 安装、卸载、检测、同步
 │   ├── skills.js              # skill 扫描、hash、复制
 │   ├── state.js               # 安装状态读写
-│   ├── ui.js                  # 交互提示
+│   ├── tui.js                 # Clack 交互式终端封装
 │   ├── update.js              # git/npm 更新检查与执行
 │   └── util.js
 ├── skills/
@@ -304,11 +327,10 @@ skills/git-weekly-report/references/project-map.example.json
 
 ## Git remote
 
-仓库当前以本地 Git 管理。需要远端时：
+仓库已配置远端：
 
-```bash
-git remote add origin <your-repo-url>
-git push -u origin main
+```text
+origin  https://github.com/xiaoyaos/skill-manager.git
 ```
 
-配置 remote 后，`skill-manager update` 才能通过 `git pull` 更新。
+当前分支 `main` 跟踪 `origin/main`。`skill-manager update` 通过 `git fetch` 检查、`git pull --ff-only` 更新。
