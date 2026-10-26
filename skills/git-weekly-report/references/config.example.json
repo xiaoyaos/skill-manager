@@ -1,0 +1,16 @@
+{
+  "workspace": "/Users/you/work",
+  "authors": [
+    "you@example.com",
+    "you@your-laptop.local"
+  ],
+  "output_dir": "/Users/you/work",
+  "scan_depth": 5,
+  "git": {
+    "all_branches": true,
+    "exclude_merge": true
+  },
+  "report": {
+    "sheet_name": "上周周报"
+  }
+}

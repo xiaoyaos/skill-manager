@@ -1,0 +1,22 @@
+{
+  "projects": {
+    "Example Platform": {
+      "repos": [
+        "platform",
+        "packages/platform-gateway"
+      ],
+      "goal": "完成平台接入与鉴权能力。",
+      "strategic": true
+    },
+    "Example Tooling": {
+      "repos": [
+        "tools/example"
+      ],
+      "goal": "维护日常工具链与构建流程。",
+      "strategic": false
+    }
+  },
+  "ignored_repos": [
+    "vendor/legacy"
+  ]
+}
