@@ -11,6 +11,6 @@
     "exclude_merge": true
   },
   "report": {
-    "sheet_name": "上周周报"
+    "person_name": "张三"
   }
 }

@@ -9,7 +9,7 @@
 - `skill-creator-x`（目录：`skills/skill-creator-x/`）
 - `git-weekly-report`（目录：`skills/git-weekly-report/`）
 
-`git-weekly-report` 从本地多仓库 Git 提交生成中文周报 Excel，默认输出单周模板（大类 / 名称 / 目标 / 进展 / 完成状态 / 偏差说明）。
+`git-weekly-report` 从本地多仓库 Git 提交生成中文周报 Excel，100% 套用 UJoin《个人周报》模板（个人周报——姓名 / 周报周期 / 大类 / 名称 / 目标 / 进展 / 完成状态 / 偏差说明，重点项目 4 行 + 日常工作 4 行）。版式来源是 `skills/git-weekly-report/assets/ujoin-weekly-template.xlsx`，渲染器只替换数据单元格。
 
 ## 仓库边界
 
@@ -127,13 +127,14 @@ skills/<skill-name>/
 
 ```text
 ~/.config/git-weekly-report/
-├── config.json          # workspace、作者邮箱、输出目录
+├── config.json          # workspace、作者邮箱、姓名、输出目录
 └── project-map.json     # 仓库 -> 项目映射
 ```
 
 仓库内只保留：
 
 ```text
+skills/git-weekly-report/assets/ujoin-weekly-template.xlsx   # 脱敏后的空白模板
 skills/git-weekly-report/references/config.example.json
 skills/git-weekly-report/references/project-map.example.json
 ```

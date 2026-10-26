@@ -1,17 +1,17 @@
 ---
 name: git-weekly-report
-description: 从本地多仓库 Git 提交生成中文周报 Excel。用于用户说“写周报 / 上周周报 / 工作周报 / weekly report / Git 提交汇总”时，自动扫描工作区仓库、按作者和周归并提交，生成单周模板（大类 / 名称 / 目标 / 进展 / 完成状态 / 偏差说明），并校验覆盖率和 A4 横向单页打印。仅处理本地已 clone 的 Git 仓库，不替代人工确认。
+description: 从本地多仓库 Git 提交生成中文周报 Excel，100% 套用 UJoin《个人周报》模板（个人周报——姓名 / 周报周期 / 大类 / 名称 / 目标 / 进展 / 完成状态 / 偏差说明，重点项目 4 行 + 日常工作 4 行）。用于用户说“写周报 / 上周周报 / 工作周报 / weekly report / Git 提交汇总”时，自动扫描工作区仓库、按作者和周归并提交、生成单周周报并校验模板一致性。仅处理本地已 clone 的 Git 仓库，不替代人工确认。
 ---
 
 # Git Weekly Report
 
-把本地 Git 提交转成一份可汇报、可打印的中文周报。核心原则：**提交是证据，周报是叙事，Excel 只是排版**。
+把本地 Git 提交转成一份符合 UJoin 个人周报模板的中文周报。核心原则：**提交是证据，周报是叙事，Excel 只是排版**。
 
 ## 何时使用
 
 - 用户要写“上周周报”“本周周报”“工作周报”“weekly report”。
 - 用户给了一个日期范围，要求按项目汇总自己的 Git 提交。
-- 用户要沿用固定模板：`大类 / 名称（只列关键） / 目标 / 进展 / 完成状态 / 偏差说明`。
+- 用户要求周报套用 UJoin《个人周报》模板。
 
 不适用：
 
@@ -28,11 +28,34 @@ description: 从本地多仓库 Git 提交生成中文周报 Excel。用于用�
 
 ## 目录约定
 
-本 skill 的脚本都在 `scripts/` 下。下文用 `$SKILL_DIR` 表示本 `SKILL.md` 所在目录：
+本 skill 的脚本都在 `scripts/` 下，模板在 `assets/` 下。下文用 `$SKILL_DIR` 表示本 `SKILL.md` 所在目录：
 
 ```bash
 SKILL_DIR="${SKILL_DIR:-$HOME/.agents/skills/git-weekly-report}"
 ```
+
+## 模板
+
+唯一版式来源：`assets/ujoin-weekly-template.xlsx`。它是 `ujoin周报模板.xlsx` 中“个人周报（模板）”工作表的脱敏副本，保留全部字体、底色、边框、合并单元格、数据验证和列宽。
+
+固定结构：
+
+| 行 | 内容 |
+|---|---|
+| 1 | `个人周报——<姓名>`，合并 A1:F1，深蓝底白字 16 号加粗 |
+| 2 | 填写说明，合并 A2:F2 |
+| 3 | `周报周期：YYYY/MM/DD-YYYY/MM/DD`，合并 A3:F3，浅蓝底 |
+| 4 | `大类` / `名称（只列关键）` / `目标` / `进展` / `完成状态` / `偏差说明`，浅黄底加粗 |
+| 5-8 | 重点项目，固定 4 个槽位，A5:A8 合并，蓝底白字竖排 |
+| 9-12 | 日常工作，固定 4 个槽位，A9:A12 合并，绿底白字竖排 |
+| 13-22 | 第二张空白表，保持模板原样 |
+
+要点：
+
+- 每个大类最多 4 条。超过 4 条必须先合并主题，不能加行。
+- 不足 4 条时，剩余槽位留空。
+- 不改行高、不改列宽、不改打印设置、不改第二张空白表。
+- 完成状态只允许 `✅已完成`、`🟡进行中`、`⏸暂停`、`❌延期`，与模板的数据验证一致。
 
 ## 本地配置
 
@@ -40,7 +63,7 @@ SKILL_DIR="${SKILL_DIR:-$HOME/.agents/skills/git-weekly-report}"
 
 ```text
 ~/.config/git-weekly-report/
-├── config.json          # workspace、作者邮箱、输出目录
+├── config.json          # workspace、作者邮箱、姓名、输出目录
 └── project-map.json     # 仓库 -> 项目映射
 ```
 
@@ -58,7 +81,8 @@ test -f ~/.config/git-weekly-report/project-map.json || \
 
 1. `workspace` 是否是多仓库的父目录。
 2. `authors` 是否包含用户所有提交邮箱（工作邮箱、个人邮箱、机器默认邮箱）。
-3. `project-map.json` 中的仓库路径是否相对 `workspace`，项目名和标准目标是否符合用户口径。
+3. `report.person_name` 是否与周报标题一致。
+4. `project-map.json` 中的仓库路径是否相对 `workspace`，项目名和标准目标是否符合用户口径。
 
 `config.json` 示例：
 
@@ -69,12 +93,12 @@ test -f ~/.config/git-weekly-report/project-map.json || \
   "output_dir": "/Users/you/work",
   "scan_depth": 5,
   "report": {
-    "sheet_name": "上周周报"
+    "person_name": "张三"
   }
 }
 ```
 
-`output_dir` 用于 `render_report.py` 未传 `--output` 时的默认输出目录；`report.sheet_name` 可覆盖默认 sheet 名。
+`report.person_name` 用于标题 `个人周报——张三` 和工作表名；未设置时回退到 `report.json` 的 `person_name`，再回退到 `员工姓名`。
 
 `project-map.json` 示例：
 
@@ -145,6 +169,7 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
 
 ```json
 {
+  "person_name": "张三",
   "period": "2026/10/19-2026/10/25",
   "week": "W43",
   "sections": [
@@ -155,8 +180,8 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
           "name": "示例平台接入与鉴权",
           "goal": "完成平台应用接入、租户白名单与网关鉴权能力。",
           "progress": "实现应用类别透传与租户列表返回；修复应用无角色时的处理；调整请求限制。",
-          "status": "完成",
-          "deviation": "无",
+          "status": "✅已完成",
+          "deviation": "",
           "evidence": {
             "projects": ["Example Platform"],
             "repos": ["platform", "packages/platform-gateway"],
@@ -176,8 +201,8 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
           "name": "示例工具链构建配置维护",
           "goal": "保障测试环境与构建产物稳定。",
           "progress": "调整测试环境消息队列地址；构建阶段关闭静态资源监听，避免产物截断。",
-          "status": "完成",
-          "deviation": "无",
+          "status": "✅已完成",
+          "deviation": "",
           "evidence": {
             "projects": ["Example Tooling"],
             "repos": ["tools/example"],
@@ -196,19 +221,19 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
 
 ### 5. 选择重点项目和日常工作
 
-**重点项目**（建议 3-5 个）：
+**重点项目**（3-4 条）：
 
 - 战略性、功能级、跨多天或多仓库。
 - 对用户可见，或涉及架构、协议、核心链路。
 - 一个项目提交很多时，按主题拆成 2-3 个重点项目，而不是逐条列提交。
 
-**日常工作**（建议 2-4 个）：
+**日常工作**（2-4 条）：
 
 - 小修复、文档、配置、构建、环境维护。
 - 单条或少量提交，但确实占用了工作时间。
 - 不要为了凑数把重点项目拆成日常。
 
-总数建议不超过 8 条，保证 A4 横向单页。
+总数不超过 8 条，正好填满模板的 4+4 行。
 
 ### 6. 写目标、进展、状态、偏差
 
@@ -229,12 +254,17 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
 
 | 状态 | 使用条件 |
 |---|---|
-| `完成` | 本周工作闭环，无遗留 |
-| `进行中` | 已启动、按计划推进，但本周未闭环 |
-| `部分完成` | 多个子项只完成一部分 |
-| `有偏差` | 有阻塞、延期或范围变化 |
+| `✅已完成` | 本周工作闭环，无遗留 |
+| `🟡进行中` | 已启动、按计划推进，但本周未闭环 |
+| `⏸暂停` | 因依赖、资源或优先级变化暂停 |
+| `❌延期` | 有阻塞、延期或范围变化 |
 
-如果状态不是 `完成`，`偏差说明` 必须写原因，不能写 `无`。
+兼容旧写法：`完成` → `✅已完成`，`进行中` / `部分完成` → `🟡进行中`，`暂停` → `⏸暂停`，`有偏差` → `❌延期`。新报告请直接写模板状态。
+
+**偏差说明**
+
+- 状态不是 `✅已完成` 时必填，写具体原因，例如“等待第三方接口联调”“硬件环境未到位”“范围新增，顺延到下周”。
+- 状态是 `✅已完成` 时留空；写 `无` 也会在渲染时按空处理。
 
 **证据**
 
@@ -250,14 +280,16 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
 # 指定输出路径
 uv run --with openpyxl python "$SKILL_DIR/scripts/render_report.py" \
   --input /tmp/git-weekly-report/report.json \
-  --output "/Users/you/work/周报_20261019-20261025.xlsx"
+  --output "/Users/you/work/个人周报_张三_20261019-20261025.xlsx"
 
-# 或省略 --output：使用 config.json 的 output_dir，文件名按周期自动生成
+# 或省略 --output：使用 config.json 的 output_dir，文件名自动生成
 uv run --with openpyxl python "$SKILL_DIR/scripts/render_report.py" \
   --input /tmp/git-weekly-report/report.json
 ```
 
-默认 sheet 名为 `上周周报`，可用 `--sheet-name` 覆盖，也可在 `config.json` 的 `report.sheet_name` 中设置。
+默认使用 `assets/ujoin-weekly-template.xlsx`；需要临时换模板时用 `--template`，或在 `config.json` 的 `report.template` 中设置。
+
+输出只有一个工作表，表名为 `report.person_name`。
 
 ### 8. 校验
 
@@ -265,43 +297,42 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/render_report.py" \
 uv run --with openpyxl python "$SKILL_DIR/scripts/validate_report.py" \
   --report /tmp/git-weekly-report/report.json \
   --commits /tmp/git-weekly-report/commits.json \
-  --xlsx "/Users/you/work/周报_20261019-20261025.xlsx"
+  --xlsx "/Users/you/work/个人周报_张三_20261019-20261025.xlsx"
 ```
 
 校验内容：
 
 - 每个有提交的项目是否被周报覆盖。
 - 是否还有未归类仓库。
-- 必填字段、状态、偏差是否合理。
+- 字段、状态、偏差是否合理。
 - 每个条目是否有提交证据。
-- Excel 的标题、表头、合并单元格、行高、打印设置。
+- 是否严格等于模板：标题、说明、周期、表头、8 个合并区域、列宽、行高、数据验证、字体/底色/边框/对齐，逐单元格比对。
+- 重点项目 / 日常工作是否超过 4 条。
+- 第二张空白表是否被改动。
 
 校验失败时，修 `report.json` 后重新渲染，不要手改 Excel。
 
-### 9. 打印预览
+### 9. 交付前检查
 
-如果环境有 Numbers / Excel / LibreOffice，打开生成的文件做一次打印预览：
-
-- A4 横向。
-- 单页。
-- 没有文字截断。
-- 表格没有跑到第二页。
-
-macOS 上 Numbers 的“打印预览”比 `qlmanage` 缩略图可靠；`qlmanage` 可能只截取页面的一部分。
+- 打开文件确认标题姓名、周期正确。
+- 重点项目 4 行、日常工作 4 行，空槽位保持空白。
+- 状态全部是 `✅已完成` / `🟡进行中` / `⏸暂停` / `❌延期`。
+- 非完成项都有偏差说明。
+- 没有文字被截断（模板行高自动撑开，不需要手工调）。
 
 ## Excel 版式
 
-默认版式：
+版式完全由模板决定，渲染器只写数据单元格：
 
-- A4 横向，页边距 0.3 / 0.3 / 0.4 / 0.4 英寸。
-- 标题行合并 A1:F1，浅蓝底。
-- 表头行深蓝底、白字。
-- 大类列按 section 合并，竖排文字，浅绿底。
-- 列宽：A 8、B 24、C 34、D 68、E 10、F 22。
-- 字体：宋体 11；标题 14；section 标签 11。
-- 行高按中文/英文文本长度估算，最小 30，最大 409。
-- `fitToWidth=1`、`fitToHeight=0`、`fitToPage=True`。
-- 不显示网格线。
+- 标题行 `个人周报——<姓名>`，合并 A1:F1，`1F4E79` 底、白字 16 号加粗。
+- 说明行合并 A2:F2。
+- 周期行 `周报周期：...`，合并 A3:F3，`C7DCFF` 底、`404040` 字。
+- 表头行 `FFF2CC` 底、10 号加粗、细边框 `BFBFBF`。
+- 重点项目标签 `2E75B6` 底、白字竖排；日常工作标签 `548235` 底、白字竖排。
+- 列宽：B 23.0625、C 37.5312、D 61.3203，A/E/F 用默认宽度。
+- 行高不设置，交给 Excel 自动撑开。
+- 网格线显示；页面设置保持模板默认，不做 A4 横向强制缩放。
+- 数据验证：`E5:E12` 和 `E15:E22` 为 `✅已完成,🟡进行中,⏸暂停,❌延期`。
 
 详细规则见 `references/report-spec.md`。
 
@@ -312,11 +343,11 @@ macOS 上 Numbers 的“打印预览”比 `qlmanage` 缩略图可靠；`qlmanag
 - [ ] `unmapped` 已处理。
 - [ ] 每个有提交的项目都有对应周报条目。
 - [ ] 每个条目都有 `evidence.commit_count > 0`。
-- [ ] 重点项目 3-5 个，日常工作 2-4 个。
-- [ ] 状态不是 `完成` 的条目都有偏差说明。
+- [ ] 重点项目 3-4 条，日常工作 2-4 条。
+- [ ] 非 `✅已完成` 的条目都有偏差说明。
 - [ ] 没有编造提交之外的工作。
 - [ ] 生成文件能正常打开。
-- [ ] A4 横向单页，无截断。
+- [ ] 校验输出 `[PASS]`，0 error。
 
 ## 常见问题
 
@@ -332,10 +363,15 @@ macOS 上 Numbers 的“打印预览”比 `qlmanage` 缩略图可靠；`qlmanag
 - 不要静默忽略。把仓库和样例提交列给用户确认。
 - 确认后更新 `project-map.json`，再重新提取。
 
-**Excel 文字被截断**
+**超过 4 条放不下**
 
-- 优先缩短 `progress`，不要直接缩小字体。
-- 或增加行高；`render_report.py` 会按文本长度估算，仍不够时手动调整 `estimate_height` 的参数。
+- 模板每个大类只有 4 行，不能加行。
+- 合并同类项，或把次要内容降级到日常工作，必要时删掉价值最低的条目。
+
+**模板文件打不开**
+
+- `ujoin周报模板.xlsx` 由 WPS 生成，`styles.xml` 里有 `<fill/>`，openpyxl 会报 `Fill() takes no arguments`。
+- 渲染器和校验器会自动修补这个临时副本；仓库内的 `assets/ujoin-weekly-template.xlsx` 已经修好，不需要手工处理。
 
 **OpenCode 看不到新 skill**
 
@@ -345,7 +381,8 @@ macOS 上 Numbers 的“打印预览”比 `qlmanage` 缩略图可靠；`qlmanag
 
 ## 参考
 
-- `references/report-spec.md`：模板、字段、版式、状态口径。
+- `assets/ujoin-weekly-template.xlsx`：唯一版式来源。
+- `references/report-spec.md`：字段、状态、模板结构、校验规则。
 - `references/examples.md`：脱敏示例。
 - `references/config.example.json`：本机配置示例。
 - `references/project-map.example.json`：项目映射示例。

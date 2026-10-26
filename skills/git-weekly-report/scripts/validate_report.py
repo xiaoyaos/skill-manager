@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Validate a weekly report before delivery.
+"""Validate a UJoin personal weekly report before delivery.
 
-Checks three layers:
+Three layers:
 
-1. report.json: required fields, status/deviation consistency, evidence.
+1. report.json: fields, fixed sections, status vocabulary, evidence.
 2. coverage: every project with commits is referenced by at least one item.
-3. Excel: title, headers, section merges, row heights, print setup, and an
-   estimate that the content still fits on one A4 landscape page.
+3. Excel: the rendered file must match ``assets/ujoin-weekly-template.xlsx``
+   cell by cell for styles, merges, widths, heights and data validation,
+   and the data cells must match report.json.
 """
 
 from __future__ import annotations
@@ -19,30 +20,32 @@ from typing import Any
 
 try:
     from openpyxl import load_workbook
-except ImportError:  # pragma: no cover - depends on the caller's environment
+except ImportError:  # pragma: no cover
     print(
         "[error] openpyxl is required. Run with: uv run --with openpyxl python ...",
         file=sys.stderr,
     )
     raise SystemExit(2)
 
-HEADERS = ["大类", "名称（只列关键）", "目标", "进展", "完成状态", "偏差说明"]
-COLUMN_WIDTHS = {"A": 8, "B": 24, "C": 34, "D": 68, "E": 10, "F": 22}
-STATUS_VALUES = {"完成", "进行中", "部分完成", "有偏差"}
-EMPTY_DEVIATIONS = {"", "无", "无。", "-", "none", "n/a"}
-
-DEFAULT_CONFIG = Path.home() / ".config" / "git-weekly-report" / "config.json"
-
-A4_LANDSCAPE_WIDTH_IN = 11.69
-A4_LANDSCAPE_HEIGHT_IN = 8.27
-MARGIN_LEFT_IN = 0.3
-MARGIN_RIGHT_IN = 0.3
-MARGIN_TOP_IN = 0.4
-MARGIN_BOTTOM_IN = 0.4
-EXCEL_WIDTH_UNIT_PX = 7
-EXCEL_COLUMN_PADDING_PX = 5
-EXCEL_DPI = 96
-POINTS_PER_INCH = 72
+from report_layout import (
+    DEFAULT_CONFIG,
+    DEFAULT_TEMPLATE,
+    HEADERS,
+    INSTRUCTIONS,
+    LayoutError,
+    PERIOD_PREFIX,
+    PERIOD_ROW,
+    SECOND_BLOCK,
+    SECTIONS,
+    TITLE_PREFIX,
+    TITLE_ROW,
+    load_template,
+    normalize_status,
+    render_deviation,
+    resolve_person_name,
+    section_map,
+    text,
+)
 
 
 class Validation:
@@ -55,9 +58,6 @@ class Validation:
 
     def warning(self, message: str) -> None:
         self.warnings.append(message)
-
-    def ok(self) -> bool:
-        return not self.errors
 
 
 def load_json(path: Path, label: str) -> dict[str, Any]:
@@ -80,23 +80,10 @@ def load_config(path: Path, *, required: bool) -> dict[str, Any]:
     try:
         config = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in config: {path}: {exc}") from exc
+        raise ValueError(f"invalid config: {path}: {exc}") from exc
     if not isinstance(config, dict):
         raise ValueError(f"config must be a JSON object: {path}")
     return config
-
-
-def text(value: Any) -> str:
-    return "" if value is None else str(value).strip()
-
-
-def vertical_label(label: str) -> str:
-    compact = label.strip()
-    if 1 < len(compact) <= 6 and all(
-        "\u4e00" <= char <= "\u9fff" or char in " ·/-" for char in compact
-    ):
-        return "\n".join(compact)
-    return compact
 
 
 def check_report_structure(
@@ -124,9 +111,10 @@ def check_report_structure(
     if period.get("multi_week"):
         result.error("the selected range spans more than one ISO week; use a single week")
 
-    sections = report.get("sections")
-    if not isinstance(sections, list) or not sections:
-        result.error("report.sections must be a non-empty list")
+    try:
+        mapped = section_map(report)
+    except LayoutError as exc:
+        result.error(str(exc))
         return set(), 0, {}
 
     by_project = commits.get("stats", {}).get("by_project", {})
@@ -137,39 +125,32 @@ def check_report_structure(
     section_counts: dict[str, int] = {}
     total_items = 0
 
-    for section_index, section in enumerate(sections, start=1):
-        if not isinstance(section, dict):
-            result.error(f"sections[{section_index}] must be an object")
-            continue
-        label = text(section.get("label"))
-        if not label:
-            result.error(f"sections[{section_index}].label is empty")
-        items = section.get("items")
-        if not isinstance(items, list) or not items:
-            result.error(f"sections[{section_index}].items must be a non-empty list")
-            continue
-        section_counts[label] = section_counts.get(label, 0) + len(items)
+    for entry in SECTIONS:
+        label = entry["label"]
+        items = mapped[label]
+        section_counts[label] = len(items)
         total_items += len(items)
 
-        for item_index, item in enumerate(items, start=1):
-            prefix = f"sections[{section_index}].items[{item_index}]"
-            if not isinstance(item, dict):
-                result.error(f"{prefix} must be an object")
-                continue
-
-            for field in ("name", "goal", "progress", "status", "deviation"):
+        for index, item in enumerate(items, start=1):
+            prefix = f"{label}[{index}]"
+            for field in ("name", "goal", "progress", "status"):
                 if not text(item.get(field)):
                     result.error(f"{prefix}.{field} is empty")
 
-            status = text(item.get("status"))
-            if status and status not in STATUS_VALUES:
+            status = ""
+            try:
+                status = normalize_status(item.get("status"))
+            except LayoutError as exc:
+                result.error(f"{prefix}.status: {exc}")
+
+            deviation = render_deviation(item.get("deviation"))
+            if status and status != "✅已完成" and not deviation:
                 result.error(
-                    f"{prefix}.status must be one of {sorted(STATUS_VALUES)}, got {status!r}"
+                    f"{prefix}.deviation must explain why status is {status!r}"
                 )
-            deviation = text(item.get("deviation"))
-            if status and status != "完成" and deviation.lower() in EMPTY_DEVIATIONS:
-                result.error(
-                    f"{prefix}.deviation must explain why status is {status!r}, not {deviation!r}"
+            if status == "✅已完成" and deviation:
+                result.warning(
+                    f"{prefix} is 已完成 but deviation is not empty: {deviation!r}"
                 )
 
             evidence = item.get("evidence")
@@ -213,7 +194,9 @@ def check_report_structure(
             else:
                 min_samples = (
                     1
-                    if isinstance(commit_count, int) and not isinstance(commit_count, bool) and commit_count == 1
+                    if isinstance(commit_count, int)
+                    and not isinstance(commit_count, bool)
+                    and commit_count == 1
                     else 2
                 )
                 if not min_samples <= len(samples) <= 5:
@@ -283,9 +266,7 @@ def check_coverage(
     total = stats.get("total")
     commit_list = commits.get("commits", [])
     if isinstance(total, int) and isinstance(commit_list, list) and total != len(commit_list):
-        result.warning(
-            f"stats.total {total} does not match len(commits) {len(commit_list)}"
-        )
+        result.warning(f"stats.total {total} does not match len(commits) {len(commit_list)}")
 
 
 def check_recommended_counts(
@@ -295,12 +276,12 @@ def check_recommended_counts(
 ) -> None:
     key_count = section_counts.get("重点项目")
     daily_count = section_counts.get("日常工作")
-    if key_count is not None and not 3 <= key_count <= 5:
-        result.warning(f"重点项目 should have 3-5 items, got {key_count}")
+    if key_count is not None and not 3 <= key_count <= 4:
+        result.warning(f"重点项目 should have 3-4 items, got {key_count}")
     if daily_count is not None and not 2 <= daily_count <= 4:
         result.warning(f"日常工作 should have 2-4 items, got {daily_count}")
     if total_items > 8:
-        result.warning(f"total items should be <= 8 to fit one page, got {total_items}")
+        result.warning(f"total items must be <= 8 (4+4 template slots), got {total_items}")
 
 
 def check_samples(
@@ -345,196 +326,223 @@ def check_samples(
                 )
 
 
+def color_signature(color: Any) -> Any:
+    if color is None:
+        return None
+    return (
+        color.type,
+        color.rgb if color.type == "rgb" else None,
+        color.theme if color.type == "theme" else None,
+        round(color.tint, 6) if color.type == "theme" else None,
+        color.indexed if color.type == "indexed" else None,
+    )
+
+
+def style_signature(cell: Any) -> Any:
+    font = cell.font
+    fill = cell.fill
+    border = cell.border
+    align = cell.alignment
+    return (
+        font.name,
+        font.sz,
+        font.b,
+        font.i,
+        font.u,
+        color_signature(font.color),
+        fill.patternType,
+        color_signature(fill.fgColor),
+        color_signature(fill.bgColor),
+        border.left.style,
+        border.right.style,
+        border.top.style,
+        border.bottom.style,
+        color_signature(border.left.color),
+        color_signature(border.right.color),
+        color_signature(border.top.color),
+        color_signature(border.bottom.color),
+        align.horizontal,
+        align.vertical,
+        align.wrapText,
+        align.textRotation,
+        align.indent,
+        cell.number_format,
+    )
+
+
+def check_template_fidelity(
+    worksheet: Any,
+    template_ws: Any,
+    result: Validation,
+) -> None:
+    expected_merges = sorted(str(item) for item in template_ws.merged_cells.ranges)
+    actual_merges = sorted(str(item) for item in worksheet.merged_cells.ranges)
+    if actual_merges != expected_merges:
+        result.error(
+            f"merged ranges do not match the template: {actual_merges!r}"
+        )
+
+    for column in "ABCDEF":
+        expected = template_ws.column_dimensions[column].width
+        actual = worksheet.column_dimensions[column].width
+        if expected is None and actual is None:
+            continue
+        if expected is None or actual is None or abs(float(actual) - float(expected)) > 0.01:
+            result.error(
+                f"column {column} width should be {expected!r} like the template, "
+                f"got {actual!r}"
+            )
+
+    for row in range(1, 23):
+        expected = template_ws.row_dimensions[row].height
+        actual = worksheet.row_dimensions[row].height
+        if expected != actual:
+            result.error(
+                f"row {row} height should be {expected!r} like the template, got {actual!r}"
+            )
+
+    for row in range(1, 23):
+        for column in range(1, 7):
+            expected_cell = template_ws.cell(row=row, column=column)
+            actual_cell = worksheet.cell(row=row, column=column)
+            if style_signature(expected_cell) != style_signature(actual_cell):
+                result.error(
+                    f"cell {actual_cell.coordinate} style does not match the template"
+                )
+
+    if worksheet.sheet_view.showGridLines != template_ws.sheet_view.showGridLines:
+        result.error(
+            f"gridlines should be {template_ws.sheet_view.showGridLines}, "
+            f"got {worksheet.sheet_view.showGridLines}"
+        )
+
+    if worksheet.page_setup.orientation != template_ws.page_setup.orientation:
+        result.error("page orientation must stay unset like the template")
+    if worksheet.sheet_properties.pageSetUpPr and worksheet.sheet_properties.pageSetUpPr.fitToPage:
+        result.error("fitToPage must stay unset like the template")
+
+    expected_validations = sorted(
+        (str(item.sqref), text(item.formula1))
+        for item in template_ws.data_validations.dataValidation
+    )
+    actual_validations = sorted(
+        (str(item.sqref), text(item.formula1))
+        for item in worksheet.data_validations.dataValidation
+    )
+    if actual_validations != expected_validations:
+        result.error(
+            "data validation does not match the template: "
+            f"{actual_validations!r}"
+        )
+
+
 def check_excel(
     xlsx_path: Path,
     report: dict[str, Any],
+    config: dict[str, Any],
+    template_path: Path,
     result: Validation,
     *,
-    sheet_name: str,
+    person_name: str | None = None,
 ) -> None:
     if not xlsx_path.exists():
         result.error(f"xlsx not found: {xlsx_path}")
         return
 
     workbook = load_workbook(xlsx_path)
-    if sheet_name not in workbook.sheetnames:
+    name = text(person_name) or resolve_person_name(report, config)
+    if len(workbook.sheetnames) != 1:
         result.error(
-            f"worksheet {sheet_name!r} not found; available: {', '.join(workbook.sheetnames)}"
+            f"workbook should contain exactly one sheet, got {workbook.sheetnames!r}"
         )
-        return
+    sheet_name = workbook.sheetnames[0]
     worksheet = workbook[sheet_name]
+    if sheet_name != name:
+        result.warning(f"sheet name {sheet_name!r} does not match person {name!r}")
 
-    expected_title = f"周报周期：{text(report.get('period'))}"
-    actual_title = text(worksheet["A1"].value)
-    if actual_title != expected_title:
-        result.error(f"A1 title {actual_title!r} does not match {expected_title!r}")
+    expected_title = f"{TITLE_PREFIX}{name}"
+    if text(worksheet.cell(row=TITLE_ROW, column=1).value) != expected_title:
+        result.error(
+            f"A1 should be {expected_title!r}, "
+            f"got {text(worksheet.cell(row=TITLE_ROW, column=1).value)!r}"
+        )
 
-    merged = {str(item) for item in worksheet.merged_cells.ranges}
-    if "A1:F1" not in merged:
-        result.error("title row A1:F1 is not merged")
+    if text(worksheet.cell(row=2, column=1).value) != INSTRUCTIONS:
+        result.error("A2 instructions do not match the template")
 
-    headers = [text(worksheet.cell(row=2, column=column).value) for column in range(1, 7)]
+    expected_period = f"{PERIOD_PREFIX}{text(report.get('period'))}"
+    if text(worksheet.cell(row=PERIOD_ROW, column=1).value) != expected_period:
+        result.error(
+            f"A{PERIOD_ROW} should be {expected_period!r}, "
+            f"got {text(worksheet.cell(row=PERIOD_ROW, column=1).value)!r}"
+        )
+
+    headers = [
+        text(worksheet.cell(row=4, column=column).value) for column in range(1, 7)
+    ]
     if headers != HEADERS:
-        result.error(f"header row does not match: {headers!r}")
+        result.error(f"header row does not match the template: {headers!r}")
 
-    row = 3
-    last_expected_row = 2
-    for section_index, section in enumerate(report.get("sections", [])):
-        if not isinstance(section, dict):
-            continue
-        items = section.get("items", [])
-        if not isinstance(items, list) or not items:
-            continue
-        if section_index > 0:
-            separator_height = worksheet.row_dimensions[row].height
-            if separator_height is None or not 4 <= float(separator_height) <= 12:
-                result.warning(
-                    f"separator row {row} should have height around 8, got {separator_height!r}"
-                )
-            row += 1
+    try:
+        mapped = section_map(report)
+    except LayoutError as exc:
+        result.error(str(exc))
+        return
 
-        start_row = row
-        end_row = start_row + len(items) - 1
-        last_expected_row = end_row
-
-        if end_row > start_row:
-            expected_merge = f"A{start_row}:A{end_row}"
-            if expected_merge not in merged:
-                result.error(f"section A column is not merged: {expected_merge}")
-
-        expected_label = vertical_label(text(section.get("label")))
-        actual_label = text(worksheet.cell(row=start_row, column=1).value)
-        if actual_label != expected_label:
-            result.error(
-                f"A{start_row} section label {actual_label!r} does not match {expected_label!r}"
-            )
-
-        for offset, item in enumerate(items):
-            current = start_row + offset
-            if not isinstance(item, dict):
+    for entry in SECTIONS:
+        items = mapped[entry["label"]]
+        for offset in range(entry["slots"]):
+            row = entry["start_row"] + offset
+            item = items[offset] if offset < len(items) else None
+            if item is None:
+                for column in range(2, 7):
+                    if worksheet.cell(row=row, column=column).value is not None:
+                        result.error(
+                            f"{worksheet.cell(row=row, column=column).coordinate} "
+                            "should be empty to fill the template slot"
+                        )
                 continue
             expected = {
                 2: text(item.get("name")),
                 3: text(item.get("goal")),
                 4: text(item.get("progress")),
-                5: text(item.get("status")),
-                6: text(item.get("deviation")),
+                5: normalize_status(item.get("status")),
+                6: render_deviation(item.get("deviation")),
             }
             for column, expected_value in expected.items():
-                actual_value = text(worksheet.cell(row=current, column=column).value)
+                actual_value = text(worksheet.cell(row=row, column=column).value)
                 if actual_value != expected_value:
                     result.error(
-                        f"{worksheet.cell(row=current, column=column).coordinate} "
-                        f"does not match report item {text(item.get('name'))!r}"
+                        f"{worksheet.cell(row=row, column=column).coordinate} "
+                        f"should be {expected_value!r}, got {actual_value!r}"
                     )
-            height = worksheet.row_dimensions[current].height
-            if height is None:
-                result.warning(f"row {current} has no explicit height")
-            elif float(height) < 30:
-                result.warning(f"row {current} height {height} is below 30")
-            elif float(height) > 409:
-                result.error(f"row {current} height {height} exceeds Excel's 409 limit")
 
-        row = end_row + 1
-
-    if worksheet.max_row > last_expected_row:
-        result.warning(
-            f"worksheet has {worksheet.max_row} rows, expected {last_expected_row}"
-        )
-    elif worksheet.max_row < last_expected_row:
-        result.error(
-            f"worksheet has only {worksheet.max_row} rows, expected {last_expected_row}"
-        )
-
-    if worksheet.page_setup.orientation != "landscape":
-        result.error(
-            f"page orientation must be landscape, got {worksheet.page_setup.orientation!r}"
-        )
-    paper_size = worksheet.page_setup.paperSize
-    if paper_size is None or int(paper_size) != int(worksheet.PAPERSIZE_A4):
-        result.error(
-            f"paper size must be A4 ({worksheet.PAPERSIZE_A4}), "
-            f"got {paper_size!r}"
-        )
-    if worksheet.page_setup.fitToWidth != 1:
-        result.error(
-            f"fitToWidth must be 1, got {worksheet.page_setup.fitToWidth!r}"
-        )
-    if worksheet.page_setup.fitToHeight != 0:
-        result.error(
-            f"fitToHeight must be 0, got {worksheet.page_setup.fitToHeight!r}"
-        )
-    page_setup = worksheet.sheet_properties.pageSetUpPr
-    if page_setup is None or not page_setup.fitToPage:
-        result.error("fitToPage must be enabled")
-    if worksheet.sheet_view.showGridLines:
-        result.error("grid lines must be hidden")
-    print_titles = text(worksheet.print_title_rows).replace("$", "")
-    if print_titles != "1:2":
-        result.error(f"print_title_rows must be 1:2, got {worksheet.print_title_rows!r}")
-
-    margins = worksheet.page_margins
-    for name, actual, expected in (
-        ("left", margins.left, MARGIN_LEFT_IN),
-        ("right", margins.right, MARGIN_RIGHT_IN),
-        ("top", margins.top, MARGIN_TOP_IN),
-        ("bottom", margins.bottom, MARGIN_BOTTOM_IN),
+    if text(worksheet.cell(row=SECOND_BLOCK["period_row"], column=1).value) != (
+        f"{PERIOD_PREFIX}2026/月/日-2026/月/日"
     ):
-        if actual is None or abs(float(actual) - expected) > 0.01:
-            result.warning(f"page margin {name} should be {expected}, got {actual!r}")
+        result.error("the lower blank table must keep the template period placeholder")
+    lower_headers = [
+        text(worksheet.cell(row=SECOND_BLOCK["header_row"], column=column).value)
+        for column in range(1, 7)
+    ]
+    if lower_headers != HEADERS:
+        result.error("the lower blank table headers were modified")
+    for row in range(SECOND_BLOCK["start_row"], SECOND_BLOCK["end_row"] + 1):
+        for column in range(2, 7):
+            if worksheet.cell(row=row, column=column).value is not None:
+                result.error(
+                    f"{worksheet.cell(row=row, column=column).coordinate} "
+                    "in the lower blank table must stay empty"
+                )
 
-    for column, expected_width in COLUMN_WIDTHS.items():
-        actual_width = worksheet.column_dimensions[column].width
-        if actual_width is None or abs(float(actual_width) - expected_width) > 0.1:
-            result.warning(
-                f"column {column} width should be {expected_width}, got {actual_width!r}"
-            )
-
-    check_single_page(worksheet, result)
-
-
-def check_single_page(worksheet: Any, result: Validation) -> None:
-    total_height = 0.0
-    for row in range(1, worksheet.max_row + 1):
-        height = worksheet.row_dimensions[row].height
-        total_height += float(height) if height is not None else 15.0
-
-    total_width_units = 0.0
-    for column in COLUMN_WIDTHS:
-        width = worksheet.column_dimensions[column].width
-        total_width_units += float(width) if width is not None else COLUMN_WIDTHS[column]
-
-    estimated_width_px = (
-        total_width_units * EXCEL_WIDTH_UNIT_PX
-        + len(COLUMN_WIDTHS) * EXCEL_COLUMN_PADDING_PX
-    )
-    estimated_width_in = estimated_width_px / EXCEL_DPI
-    usable_width_in = A4_LANDSCAPE_WIDTH_IN - MARGIN_LEFT_IN - MARGIN_RIGHT_IN
-    usable_height_pt = (
-        A4_LANDSCAPE_HEIGHT_IN - MARGIN_TOP_IN - MARGIN_BOTTOM_IN
-    ) * POINTS_PER_INCH
-
-    scale = min(1.0, usable_width_in / estimated_width_in) if estimated_width_in else 1.0
-    scaled_height_pt = total_height * scale
-
-    print(
-        "  page estimate: "
-        f"raw={total_height:.1f}pt, width={estimated_width_in:.2f}in, "
-        f"scale={scale:.2f}, scaled={scaled_height_pt:.1f}pt, "
-        f"usable={usable_height_pt:.1f}pt"
-    )
-
-    if scaled_height_pt > usable_height_pt + 2:
-        result.error(
-            "estimated content exceeds one A4 landscape page "
-            f"({scaled_height_pt:.1f}pt > {usable_height_pt:.1f}pt); "
-            "shorten progress text or reduce row heights"
-        )
+    template = load_template(template_path)
+    template_ws = template[template.sheetnames[0]]
+    check_template_fidelity(worksheet, template_ws, result)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate report.json, commits.json and the rendered weekly report.",
+        description="Validate report.json, commits.json and the rendered UJoin weekly report.",
     )
     parser.add_argument("--report", required=True, help="report.json path")
     parser.add_argument("--commits", required=True, help="commits.json path")
@@ -544,10 +552,10 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"local config JSON (default: {DEFAULT_CONFIG})",
     )
     parser.add_argument(
-        "--sheet-name",
-        default=None,
-        help="worksheet name; defaults to config report.sheet_name or 上周周报",
+        "--template",
+        help=f"template .xlsx (default: {DEFAULT_TEMPLATE})",
     )
+    parser.add_argument("--person-name", help="override the name in the title")
     return parser
 
 
@@ -564,12 +572,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[error] {exc}", file=sys.stderr)
         return 2
 
-    sheet_name = args.sheet_name
-    if not sheet_name:
-        report_config = config.get("report", {})
-        if isinstance(report_config, dict):
-            sheet_name = str(report_config.get("sheet_name", "")).strip() or None
-    sheet_name = sheet_name or "上周周报"
+    template_value = args.template or (
+        (config.get("report") or {}).get("template")
+        if isinstance(config.get("report"), dict)
+        else None
+    )
+    template_path = (
+        Path(str(template_value)).expanduser() if template_value else DEFAULT_TEMPLATE
+    )
 
     covered_projects, total_items, section_counts = check_report_structure(
         report, commits, result
@@ -582,8 +592,10 @@ def main(argv: list[str] | None = None) -> int:
         check_excel(
             Path(args.xlsx).expanduser(),
             report,
+            config,
+            template_path,
             result,
-            sheet_name=sheet_name,
+            person_name=args.person_name,
         )
     else:
         result.warning("xlsx not provided; Excel layout was not checked")
