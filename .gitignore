@@ -21,6 +21,7 @@ __pycache__/
 
 # Local skill data / generated reports
 *.local.json
+*.tgz
 local/
 /commits.json
 /report.json

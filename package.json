@@ -1,31 +1,36 @@
 {
-  "name": "skill-manager",
-  "version": "0.1.0",
-  "description": "用于集中维护与分发 AI Skills 的交互式 CLI",
+  "name": "ujoin-skill-manager",
+  "version": "0.2.0",
+  "description": "UJoin 自研 AI Skills 全生命周期管理 CLI：查看、安装、卸载、更新，并同步到 Codex / OpenCode / Claude 等 Agent。",
   "bin": {
     "skill-manager": "bin/skill-manager.js"
   },
   "files": [
     "bin",
+    "src",
     "skills",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "start": "node bin/skill-manager.js",
     "check": "node --check bin/skill-manager.js",
+    "test": "node --test",
     "validate": "bash scripts/validate-skills.sh",
     "link": "bash scripts/link-skills.sh",
     "unlink": "bash scripts/unlink-skills.sh",
     "new": "python3 skills/skill-creator-x/scripts/init_skill.py --path skills"
   },
   "keywords": [
-    "cli",
     "skills",
-    "ai",
-    "codex"
+    "agent",
+    "codex",
+    "opencode",
+    "cli"
   ],
   "engines": {
     "node": ">=18.12.0"
   },
+  "preferGlobal": true,
   "license": "MIT"
 }

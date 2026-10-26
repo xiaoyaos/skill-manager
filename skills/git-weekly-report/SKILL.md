@@ -377,7 +377,7 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/validate_report.py" \
 
 - 确认 `~/.agents/skills/git-weekly-report` 是 symlink 且指向本仓库。
 - 重开一个 OpenCode 会话。
-- 如果 symlink 不被识别，用 `node bin/skill-manager.js` 选择 OpenCode 做复制安装。
+- 如果 symlink 不被识别，运行 `skill-manager install git-weekly-report --agent opencode` 做复制安装。
 
 ## 参考
 

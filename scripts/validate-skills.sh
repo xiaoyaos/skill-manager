@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Validate the CLI syntax and every skill in this repository.
+# Validate the CLI syntax, every skill in this repository, and the CLI tests.
 #
 # Usage:
 #   bash scripts/validate-skills.sh
@@ -11,7 +11,14 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
 echo "== CLI syntax =="
-node --check bin/skill-manager.js
+for file in bin/*.js src/*.js test/*.js; do
+  [ -f "$file" ] || continue
+  node --check "$file"
+done
+
+echo
+echo "== CLI tests =="
+node --test
 
 echo
 echo "== Skills =="
