@@ -67,6 +67,35 @@ test("installs, lists and uninstalls a skill for Codex", (t) => {
   assert.equal(fs.existsSync(target), false);
 });
 
+test("exposes short bin aliases", () => {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8"),
+  );
+  assert.equal(pkg.bin["skill-manager"], "bin/skill-manager.js");
+  assert.equal(pkg.bin.sm, "bin/skill-manager.js");
+  assert.equal(pkg.bin.skm, "bin/skill-manager.js");
+});
+
+test("supports short command aliases", (t) => {
+  const { env, home } = createEnvironment(t);
+
+  const install = runCli(["i", "nest-lib-gen", "--agent", "codex", "--yes"], env);
+  assert.equal(install.status, 0, install.stderr);
+  const target = path.join(home, ".codex", "skills", "nest-lib-gen");
+  assert.ok(fs.existsSync(path.join(target, "SKILL.md")));
+
+  const list = runCli(["ls", "--json"], env);
+  assert.equal(list.status, 0, list.stderr);
+  assert.equal(JSON.parse(list.stdout).skills.length, 4);
+
+  const uninstall = runCli(
+    ["un", "nest-lib-gen", "--agent", "codex", "--yes"],
+    env,
+  );
+  assert.equal(uninstall.status, 0, uninstall.stderr);
+  assert.equal(fs.existsSync(target), false);
+});
+
 test("reports agent directories and passes doctor checks", (t) => {
   const { env } = createEnvironment(t);
 

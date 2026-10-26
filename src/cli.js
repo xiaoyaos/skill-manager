@@ -48,11 +48,14 @@ const VALUE_FLAGS = new Set([
 
 const COMMAND_ALIASES = {
   add: "install",
+  i: "install",
   ls: "list",
   remove: "uninstall",
   rm: "uninstall",
+  un: "uninstall",
   status: "doctor",
   upgrade: "update",
+  up: "update",
 };
 
 function parseArgs(argv) {
@@ -114,6 +117,8 @@ function header() {
 
 function printHelp() {
   console.log(`Usage: skill-manager <command> [options]
+       sm <command> [options]      (short alias)
+       skm <command> [options]     (short alias)
 
 Commands:
   list                查看 skill 库和安装状态
@@ -127,6 +132,13 @@ Commands:
   menu                交互式菜单（默认）
   help                显示帮助
   version             显示版本
+
+Command aliases:
+  i / add             install
+  ls                  list
+  un / rm / remove    uninstall
+  up / upgrade        update
+  status              doctor
 
 Options:
   --agent <key>       codex / opencode / claude / cursor / windsurf，或完整 key
