@@ -24,6 +24,12 @@ const AGENT_PROFILES = [
     invokeTip: "在项目内 Codex 对话中输入：使用 $<skill-name>",
   },
   {
+    key: "opencode-global",
+    displayName: "OpenCode (Global)",
+    pathTemplate: "{HOME}/.agents/skills",
+    invokeTip: "在 OpenCode 对话中直接说：使用 <skill-name> skill",
+  },
+  {
     key: "claude-global",
     displayName: "Claude Code (Global)",
     pathTemplate: "{HOME}/.claude/skills",
@@ -239,7 +245,7 @@ function showInstalledSkills(agentSkillsDir) {
 
   const installed = fs
     .readdirSync(agentSkillsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && hasSkillMarker(path.join(agentSkillsDir, entry.name)))
+    .filter((entry) => hasSkillMarker(path.join(agentSkillsDir, entry.name)))
     .map((entry) => entry.name)
     .sort((left, right) => left.localeCompare(right));
 
@@ -324,7 +330,12 @@ async function uninstallSkillForAgent(rl, agentName, agentSkillsDir) {
     return;
   }
 
-  fs.rmSync(targetDir, { recursive: true, force: true });
+  const targetStat = fs.lstatSync(targetDir);
+  if (targetStat.isSymbolicLink()) {
+    fs.unlinkSync(targetDir);
+  } else {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+  }
   console.log(`[PASS] 已卸载：${targetDir}`);
 }
 
