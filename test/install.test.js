@@ -66,6 +66,37 @@ test("copies a skill, records state and restores it with sync", (t) => {
   assert.equal(listInstalls().length, 0);
 });
 
+test("dry-run detects installed copy updates without changing the target", (t) => {
+  const { root, agent } = createWorkspace(t);
+  const skillsDir = path.join(root, "skills");
+  const source = path.join(skillsDir, "demo");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(
+    path.join(source, "SKILL.md"),
+    "---\nname: demo\ndescription: demo\n---\n",
+  );
+
+  installSkill({
+    skillName: "demo",
+    agent,
+    mode: "copy",
+    skillsDir,
+    packageVersion: "0.2.0",
+  });
+  const target = path.join(agent.skillsDir, "demo");
+
+  assert.equal(syncInstalls({ dryRun: true, skillsDir })[0].status, "up-to-date");
+
+  fs.appendFileSync(path.join(source, "SKILL.md"), "\nsource update\n");
+  const results = syncInstalls({ dryRun: true, skillsDir });
+
+  assert.equal(results[0].status, "would-update");
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(target, "SKILL.md"), "utf8"),
+    /source update/,
+  );
+});
+
 test("links and unlinks a skill", (t) => {
   const { agent } = createWorkspace(t);
   const skillName = "nest-lib-gen";

@@ -15,7 +15,6 @@ const {
 const {
   detectInstalls,
   installSkill,
-  installStatusForSkill,
   syncInstalls,
   uninstallSkill,
 } = require("./install");
@@ -34,6 +33,7 @@ const {
   isInside,
   padVisual,
   truncateVisual,
+  visualWidth,
 } = require("./util");
 
 const VALUE_FLAGS = new Set([
@@ -109,57 +109,77 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: skill-manager <command> [options]
-       skm <command> [options]     (short alias)
+  const column = 34;
+  const section = (title) => {
+    console.log();
+    console.log(`  ${pc.bold(pc.cyan(title))}`);
+  };
+  const row = (left, right, color = pc.cyan) => {
+    console.log(
+      `    ${color(padVisual(left, column))}  ${pc.dim(right)}`,
+    );
+  };
+  const example = (command) => {
+    console.log(`    ${pc.dim("$")} ${command.replace(/^skm/, pc.green("skm"))}`);
+  };
 
-不指定命令时启动交互式终端（需要 Node.js >= 20.12，且终端支持 TTY）。
-非交互环境自动回退为帮助信息。
+  console.log(`  ${pc.bold("Skill Manager")} ${pc.dim(`v${packageVersion()}`)}`);
+  console.log(`  ${pc.dim("UJoin 自研 AI Skills 全生命周期管理 CLI")}`);
 
-Commands:
-  list                查看 skill 库和安装状态
-  install [skill...]  安装 skill 到 Agent
-  uninstall [skill]   卸载 Agent 中的 skill
-  update              更新 CLI/仓库，并同步已安装副本
-  sync                同步已安装副本到当前版本
-  doctor              环境与安装诊断
-  agents              查看支持的 Agent 及目录
-  link                把所有 skill 以 symlink 安装到 Agent
-  menu                交互式菜单（默认）
-  help                显示帮助
-  version             显示版本
+  section("用法");
+  console.log(`    ${pc.green("skm")} <command> [options]`);
+  console.log(`    ${pc.green("skill-manager")} <command> [options]`);
+  console.log(
+    `    ${pc.dim("不指定命令时启动交互式终端；非 TTY 环境回退为帮助信息。")}`,
+  );
 
-Command aliases:
-  i / add             install
-  ls                  list
-  un / rm / remove    uninstall
-  up / upgrade        update
-  status              doctor
+  section("常用");
+  row("skm", "交互式终端");
+  row("skm ls", "查看 skill 库和安装状态");
+  row("skm i <skill> --agent codex", "安装到 Codex");
+  row("skm un <skill> --agent codex", "从 Codex 卸载");
+  row("skm up", "更新本地仓库，不修改已安装 Skill");
 
-Options:
-  --agent <key>       codex / opencode / claude / cursor / windsurf，或完整 key
-  --scope <scope>     global | project（默认 global）
-  --project <dir>     project scope 的项目目录（默认当前目录）
-  --path <dir>        自定义 Agent skills 目录
-  --copy              复制安装（默认）
-  --link              符号链接安装（适合本地开发）
-  --all               对所有 skill 操作
-  --force             覆盖已存在目标，或删除未托管目标
-  --dry-run           只显示将要做什么
-  --check             只检查更新
-  --yes, -y           跳过确认
-  --no-sync           update 后不同步已安装副本
-  --json              list / agents 输出 JSON
-  --verbose           显示完整描述和路径
+  section("命令");
+  row("list, ls", "查看 skill 库和安装状态");
+  row("install, i, add [skill...]", "安装 skill 到 Agent");
+  row("uninstall, un, rm [skill...]", "卸载 Agent 中的 skill");
+  row("update, up, upgrade", "更新本地 CLI / 仓库");
+  row("sync", "更新已安装 Skill 副本");
+  row("doctor, status", "环境与安装诊断");
+  row("agents", "查看支持的 Agent 及目录");
+  row("link", "以 symlink 安装全部 skill");
+  row("menu", "交互式终端");
+  row("help, -h", "显示帮助");
+  row("version, -v", "显示版本");
 
-Examples:
-  skill-manager list
-  skill-manager install git-weekly-report --agent codex
-  skill-manager install --all --agent codex --link
-  skill-manager install git-weekly-report --agent codex --scope project
-  skill-manager uninstall git-weekly-report --agent codex
-  skill-manager update --check
-  skill-manager update --yes
-  skill-manager doctor`);
+  section("Agent");
+  row("--agent <key>", "codex / opencode / claude / cursor / windsurf", pc.yellow);
+  row("--scope <global|project>", "默认 global", pc.yellow);
+  row("--project <dir>", "项目目录，默认当前目录", pc.yellow);
+  row("--path <dir>", "自定义 Agent skills 目录", pc.yellow);
+
+  section("安装");
+  row("--copy", "复制安装（默认）", pc.yellow);
+  row("--link", "符号链接安装（本地开发）", pc.yellow);
+  row("--all", "对所有 skill 操作", pc.yellow);
+  row("--force", "覆盖目标，或删除未托管目录", pc.yellow);
+
+  section("其他");
+  row("--yes, -y", "跳过确认", pc.yellow);
+  row("--check", "update 只检查本地仓库更新", pc.yellow);
+  row("--dry-run", "sync 只检查已安装 Skill 更新", pc.yellow);
+  row("--json", "list / agents 输出 JSON", pc.yellow);
+  row("--verbose", "显示完整描述和路径", pc.yellow);
+
+  section("示例");
+  example("skm");
+  example("skm i uj-weekly-report --agent codex");
+  example("skm i --all --agent codex --link");
+  example("skm un uj-weekly-report --agent codex --yes");
+  example("skm up --check");
+  example("skm sync --dry-run");
+  example("skm sync");
 }
 
 function resolveMode(flags) {
@@ -243,6 +263,59 @@ function expandHome(target) {
     return path.join(process.env.HOME || "", value.slice(2));
   }
   return value;
+}
+
+function terminalWidth() {
+  const columns = process.stdout.columns || 0;
+  return Math.min(Math.max(columns || 120, 80), 160);
+}
+
+function colorTag(level) {
+  const tag = `[${level}]`;
+  switch (level) {
+    case "PASS":
+    case "OK":
+      return pc.green(tag);
+    case "WARN":
+    case "SKIP":
+      return pc.yellow(tag);
+    case "FAIL":
+    case "ERROR":
+      return pc.red(tag);
+    case "UPDATE":
+    case "SYNC":
+      return pc.cyan(tag);
+    case "DRY-RUN":
+      return pc.magenta(tag);
+    case "INFO":
+      return pc.dim(tag);
+    default:
+      return tag;
+  }
+}
+
+function shortAgentLabel(label) {
+  return String(label || "")
+    .replace(/\s*\(Global\)$/i, "")
+    .replace(/\s*\(Project\)$/i, " · project");
+}
+
+function formatInstallCell(skillName, installs) {
+  const items = installs.filter((item) => item.skill === skillName);
+  if (items.length === 0) {
+    return { text: "—", installed: false, unmanaged: false };
+  }
+  const text = items
+    .map(
+      (item) =>
+        `${shortAgentLabel(item.agentLabel)} · ${item.mode}${item.managed ? "" : "!"}`,
+    )
+    .join(", ");
+  return {
+    text,
+    installed: true,
+    unmanaged: items.some((item) => !item.managed),
+  };
 }
 
 async function chooseAgent(flags) {
@@ -366,17 +439,17 @@ function managedSkillNames(agent) {
 
 function printInstallResult(result, invokeTip) {
   if (result.status === "already") {
-    console.log(`[SKIP] ${result.skill.dirName} 已安装：${result.target}`);
+    console.log(`${colorTag("SKIP")} ${result.skill.dirName} 已安装：${result.target}`);
     return;
   }
   if (result.status === "would-install") {
     console.log(
-      `[DRY-RUN] ${result.skill.dirName} -> ${result.agent.label} (${result.mode})`,
+      `${colorTag("DRY-RUN")} ${result.skill.dirName} -> ${result.agent.label} (${result.mode})`,
     );
     return;
   }
   console.log(
-    `[PASS] ${result.skill.dirName} -> ${result.agent.label} (${result.mode})`,
+    `${colorTag("PASS")} ${result.skill.dirName} -> ${result.agent.label} (${result.mode})`,
   );
   console.log(`       ${result.target}`);
   console.log(`       调用提示：${invokeTip.replaceAll("<installed-path>", result.target).replaceAll("<skill-name>", result.skill.dirName)}`);
@@ -506,12 +579,12 @@ async function runInstall(flags, positional, context = {}) {
           if (interactive) {
             lines.push(`${pc.yellow("!")} ${message}`);
           } else {
-            console.log(`[WARN] ${message}：${error.message}`);
+            console.log(`${colorTag("WARN")} ${message}：${error.message}`);
           }
         } else if (interactive) {
           lines.push(`${pc.red("✗")} ${skill.dirName}: ${error.message}`);
         } else {
-          console.log(`[FAIL] ${skill.dirName}: ${error.message}`);
+          console.log(`${colorTag("FAIL")} ${skill.dirName}: ${error.message}`);
         }
       }
     }
@@ -665,18 +738,20 @@ async function runUninstall(flags, positional, context = {}) {
             lines.push(`${pc.green("✓")} 已卸载 ${pc.bold(name)}`);
           }
         } else if (result.status === "missing") {
-          console.log(`[SKIP] ${name} 未安装：${result.target}`);
+          console.log(`${colorTag("SKIP")} ${name} 未安装：${result.target}`);
         } else if (result.status === "would-uninstall") {
-          console.log(`[DRY-RUN] 卸载 ${name} <- ${agent.label}: ${result.target}`);
+          console.log(
+            `${colorTag("DRY-RUN")} 卸载 ${name} <- ${agent.label}: ${result.target}`,
+          );
         } else {
-          console.log(`[PASS] 已卸载 ${name} <- ${agent.label}`);
+          console.log(`${colorTag("PASS")} 已卸载 ${name} <- ${agent.label}`);
         }
       } catch (error) {
         failures += 1;
         if (interactive) {
           lines.push(`${pc.red("✗")} ${name}: ${error.message}`);
         } else {
-          console.log(`[FAIL] ${name}: ${error.message}`);
+          console.log(`${colorTag("FAIL")} ${name}: ${error.message}`);
         }
       }
     }
@@ -710,61 +785,104 @@ async function runUninstall(flags, positional, context = {}) {
 }
 
 function printSkillTable(skills, installs, options = {}) {
+  const rows = skills.map((skill) => ({
+    skill,
+    status: formatInstallCell(skill.dirName, installs),
+  }));
+
   const nameWidth = Math.max(
     4,
-    ...skills.map((skill) => Math.min(28, skill.dirName.length)),
+    ...rows.map((row) => Math.min(30, visualWidth(row.skill.dirName))),
   );
+  const nameCellWidth = nameWidth + 2;
   const filesWidth = 5;
   const installedWidth = Math.min(
-    36,
+    34,
     Math.max(
       9,
-      ...skills.map((skill) =>
-        Math.min(
-          36,
-          installStatusForSkill(skill.dirName, installs).join(", ").length,
-        ),
-      ),
+      ...rows.map((row) => Math.min(34, visualWidth(row.status.text))),
     ),
   );
-  const descriptionWidth = options.verbose ? 100 : 64;
-
-  console.log(
-    [
-      padVisual("NAME", nameWidth),
-      padVisual("FILES", filesWidth),
-      padVisual("INSTALLED", installedWidth),
-      "DESCRIPTION",
-    ].join("  "),
-  );
-  console.log(
-    [
-      "-".repeat(nameWidth),
-      "-".repeat(filesWidth),
-      "-".repeat(installedWidth),
-      "-".repeat(descriptionWidth),
-    ].join("  "),
+  const gap = 2;
+  const indent = 2;
+  const fixedWidth =
+    indent + nameCellWidth + gap * 3 + filesWidth + installedWidth;
+  const descriptionWidth = Math.max(
+    16,
+    Math.min(
+      options.verbose ? 120 : 100,
+      terminalWidth() - fixedWidth,
+    ),
   );
 
-  for (const skill of skills) {
-    const installed = installStatusForSkill(skill.dirName, installs).join(", ") || "-";
-    console.log(
+  const header = [
+    padVisual("NAME", nameCellWidth),
+    padVisual("FILES", filesWidth),
+    padVisual("INSTALLED", installedWidth),
+    "DESCRIPTION",
+  ]
+    .map((cell) => pc.bold(cell))
+    .join("  ");
+  console.log(`  ${header}`);
+  console.log(
+    `  ${pc.dim(
       [
-        padVisual(truncateVisual(skill.dirName, nameWidth), nameWidth),
-        padVisual(String(skill.fileCount), filesWidth),
-        padVisual(truncateVisual(installed, installedWidth), installedWidth),
-        truncateVisual(
-          options.verbose
-            ? skill.description
-            : skill.shortDescription || skill.description,
-          descriptionWidth,
-        ),
+        "─".repeat(nameCellWidth),
+        "─".repeat(filesWidth),
+        "─".repeat(installedWidth),
+        "─".repeat(descriptionWidth),
       ].join("  "),
+    )}`,
+  );
+
+  let hasUnmanaged = false;
+  for (const { skill, status } of rows) {
+    if (status.unmanaged) {
+      hasUnmanaged = true;
+    }
+    const dot = status.installed
+      ? status.unmanaged
+        ? pc.yellow("!")
+        : pc.green("●")
+      : pc.dim("○");
+    const name = pc.bold(
+      padVisual(truncateVisual(skill.dirName, nameWidth), nameWidth),
     );
+    const files = pc.dim(padVisual(String(skill.fileCount), filesWidth));
+    const installed = padVisual(
+      truncateVisual(status.text, installedWidth),
+      installedWidth,
+    );
+    const installedCell = status.installed
+      ? status.unmanaged
+        ? pc.yellow(installed)
+        : installed
+      : pc.dim(installed);
+    const description = pc.dim(
+      truncateVisual(
+        options.verbose
+          ? skill.description
+          : skill.shortDescription || skill.description,
+        descriptionWidth,
+      ),
+    );
+
+    console.log(`  ${dot} ${name}  ${files}  ${installedCell}  ${description}`);
     if (options.verbose) {
-      console.log(`  path: ${skill.path}`);
+      console.log(`    ${pc.dim(`path  ${skill.path}`)}`);
+      console.log(`    ${pc.dim(`desc  ${skill.description}`)}`);
     }
   }
+
+  const legend = [
+    `${pc.green("●")} 已安装`,
+    `${pc.dim("○")} 未安装`,
+    hasUnmanaged ? `${pc.yellow("!")} 未托管` : "",
+  ]
+    .filter(Boolean)
+    .join("  ");
+  console.log();
+  console.log(`  ${legend}`);
 }
 
 function runList(flags) {
@@ -802,11 +920,16 @@ function runList(flags) {
     return 0;
   }
 
-  console.log(`Skill 库 v${packageVersion()} (${skills.length} skills)`);
-  console.log(`Source: ${SKILLS_DIR}`);
+  const installedSkills = new Set(installs.map((item) => item.skill)).size;
+  const installedAgents = new Set(installs.map((item) => item.agentKey)).size;
+  console.log(
+    `  ${pc.bold("Skill Manager")} ${pc.dim(`v${packageVersion()}`)}  ${pc.dim("·")}  ${pc.bold(String(skills.length))} 个 skill  ${pc.dim("·")}  ${pc.bold(String(installedSkills))} 个已安装  ${pc.dim("·")}  ${pc.bold(String(installedAgents))} 个 Agent`,
+  );
+  console.log(`  ${pc.dim(`库路径  ${displayPath(SKILLS_DIR)}`)}`);
   console.log();
+
   if (skills.length === 0) {
-    console.log("[WARN] 没有找到任何 skill。");
+    console.log(`${colorTag("WARN")} 没有找到任何 skill。`);
     return 0;
   }
   printSkillTable(skills, installs, { verbose: Boolean(flags.verbose) });
@@ -821,6 +944,7 @@ function runAgents(flags) {
     agent: agent.agent,
     scope: agent.scope,
     path: agent.skillsDir,
+    pathLabel: displayPath(agent.skillsDir),
     exists: exists(agent.skillsDir),
     skills: countSkillDirs(agent.skillsDir),
   }));
@@ -830,88 +954,128 @@ function runAgents(flags) {
     return 0;
   }
 
-  const keyWidth = Math.max(6, ...rows.map((row) => row.key.length));
-  const labelWidth = Math.max(6, ...rows.map((row) => row.label.length));
-  const pathWidth = Math.min(
-    52,
-    Math.max(12, ...rows.map((row) => row.path.length)),
+  const labelWidth = Math.max(
+    6,
+    ...rows.map((row) => Math.min(28, visualWidth(row.label))),
   );
+  const labelCellWidth = labelWidth + 2;
+  const keyWidth = Math.max(
+    6,
+    ...rows.map((row) => Math.min(20, visualWidth(row.key))),
+  );
+  const scopeWidth = 7;
+  const skillsWidth = 6;
+  const fixedWidth =
+    2 + labelCellWidth + 2 * 4 + keyWidth + scopeWidth + skillsWidth;
+  const maxPathWidth = Math.min(
+    56,
+    Math.max(16, ...rows.map((row) => visualWidth(row.pathLabel))),
+  );
+  const pathWidth = Math.max(
+    12,
+    Math.min(maxPathWidth, terminalWidth() - fixedWidth),
+  );
+  const existing = rows.filter((row) => row.exists).length;
+
   console.log(
-    [
+    `  ${pc.bold("Agent 目录")}  ${pc.dim("·")}  ${pc.bold(String(rows.length))} 个  ${pc.dim("·")}  ${pc.bold(String(existing))} 个已创建`,
+  );
+  console.log();
+  console.log(
+    `  ${[
+      padVisual("AGENT", labelCellWidth),
       padVisual("KEY", keyWidth),
-      padVisual("AGENT", labelWidth),
-      padVisual("SCOPE", 7),
-      padVisual("SKILLS", 6),
+      padVisual("SCOPE", scopeWidth),
+      padVisual("SKILLS", skillsWidth),
       "PATH",
-    ].join("  "),
+    ]
+      .map((cell) => pc.bold(cell))
+      .join("  ")}`,
   );
   console.log(
-    [
-      "-".repeat(keyWidth),
-      "-".repeat(labelWidth),
-      "-".repeat(7),
-      "-".repeat(6),
-      "-".repeat(pathWidth),
-    ].join("  "),
-  );
-  for (const row of rows) {
-    console.log(
+    `  ${pc.dim(
       [
-        padVisual(row.key, keyWidth),
-        padVisual(row.label, labelWidth),
-        padVisual(row.scope, 7),
-        padVisual(String(row.skills), 6),
-        truncateVisual(row.path, pathWidth),
+        "─".repeat(labelCellWidth),
+        "─".repeat(keyWidth),
+        "─".repeat(scopeWidth),
+        "─".repeat(skillsWidth),
+        "─".repeat(pathWidth),
       ].join("  "),
+    )}`,
+  );
+
+  for (const row of rows) {
+    const dot = row.exists ? pc.green("●") : pc.dim("○");
+    const label = padVisual(
+      truncateVisual(row.label, labelWidth),
+      labelWidth,
+    );
+    const key = pc.dim(padVisual(row.key, keyWidth));
+    const scope = pc.dim(padVisual(row.scope, scopeWidth));
+    const skills = row.skills > 0
+      ? pc.green(padVisual(String(row.skills), skillsWidth))
+      : pc.dim(padVisual("0", skillsWidth));
+    const path = pc.dim(truncateVisual(row.pathLabel, pathWidth));
+    console.log(
+      `  ${dot} ${label}  ${key}  ${scope}  ${skills}  ${path}`,
     );
   }
+
+  console.log();
+  console.log(`  ${pc.green("●")} 目录存在  ${pc.dim("○")} 未创建`);
   return 0;
 }
 
 function updateInfoLines(info) {
   const lines = [
-    `模式: ${info.mode === "git" ? "git checkout" : "npm global"}`,
-    `目录: ${info.root}`,
-    `当前版本: ${info.current}`,
+    `${pc.dim("模式")}      ${info.mode === "git" ? "git checkout" : "npm global"}`,
+    `${pc.dim("目录")}      ${displayPath(info.root)}`,
+    `${pc.dim("当前版本")}  ${info.current}`,
   ];
   if (info.branch) {
-    lines.push(`分支: ${info.branch}${info.upstream ? ` -> ${info.upstream}` : ""}`);
+    lines.push(
+      `${pc.dim("分支")}      ${info.branch}${info.upstream ? ` -> ${info.upstream}` : ""}`,
+    );
   }
 
   switch (info.status) {
     case "available":
       lines.push(
-        `[UPDATE] 有新版本: ${info.current}${info.latest ? ` -> ${info.latest}` : ""}${
+        `${colorTag("UPDATE")} 有新版本: ${info.current}${info.latest ? ` -> ${info.latest}` : ""}${
           info.behind ? `（落后 ${info.behind} 个提交）` : ""
         }`,
       );
       if (info.ahead) {
-        lines.push(`[WARN] 本地领先 upstream ${info.ahead} 个提交`);
+        lines.push(
+          `${colorTag("WARN")} 本地领先 upstream ${info.ahead} 个提交`,
+        );
       }
       if (info.dirty) {
-        lines.push("[WARN] Git 工作区有未提交改动，自动更新会被拒绝");
+        lines.push(
+          `${colorTag("WARN")} Git 工作区有未提交改动，自动更新会被拒绝`,
+        );
       }
       break;
     case "up-to-date":
       lines.push(
-        `[PASS] 已是最新版本${info.ahead ? `（本地领先 ${info.ahead} 个提交）` : ""}`,
+        `${colorTag("PASS")} 已是最新版本${info.ahead ? `（本地领先 ${info.ahead} 个提交）` : ""}`,
       );
       break;
     case "no-remote":
     case "no-upstream":
-      lines.push(`[WARN] ${info.message}`);
+      lines.push(`${colorTag("WARN")} ${info.message}`);
       break;
     case "fetch-failed":
-      lines.push(`[FAIL] 拉取远端失败: ${info.message}`);
+      lines.push(`${colorTag("FAIL")} 拉取远端失败: ${info.message}`);
       break;
     case "unpublished":
-      lines.push(`[WARN] ${info.message}`);
+      lines.push(`${colorTag("WARN")} ${info.message}`);
       lines.push(
-        "[INFO] 当前是本地/未发布安装；更新请回到源码仓库执行 git pull，或重新 npm install -g <path>",
+        `${colorTag("INFO")} 当前是本地/未发布安装；更新请回到源码仓库执行 git pull，或重新 npm install -g <path>`,
       );
       break;
     default:
-      lines.push(`[INFO] ${info.message || info.status}`);
+      lines.push(`${colorTag("INFO")} ${info.message || info.status}`);
       break;
   }
   return lines;
@@ -938,34 +1102,79 @@ function formatSyncSummary(results) {
   return counts ? `同步: ${counts}` : null;
 }
 
-function summarizeSyncResults(results) {
-  const counts = syncCounts(results);
-  if (!counts) {
-    return;
+const PENDING_INSTALL_STATUSES = new Set([
+  "would-update",
+  "would-install",
+  "would-relink",
+]);
+const INSTALL_ISSUE_STATUSES = new Set(["conflict", "missing-source"]);
+
+function installedUpdateCheckLines(results) {
+  if (results.length === 0) {
+    return [`${colorTag("INFO")} 没有记录到通过本 CLI 安装的副本。`];
   }
-  console.log(`[SYNC] ${counts}`);
-  for (const result of results) {
-    if (["conflict", "missing-source"].includes(result.status)) {
-      console.log(
-        `[WARN] ${result.skill} @ ${result.agentKey}: ${result.message || result.status}`,
-      );
-    }
+
+  const pending = results.filter((result) =>
+    PENDING_INSTALL_STATUSES.has(result.status),
+  );
+  const issues = results.filter((result) =>
+    INSTALL_ISSUE_STATUSES.has(result.status),
+  );
+  const lines = [];
+
+  for (const result of pending) {
+    const action =
+      result.status === "would-update"
+        ? "副本与源不一致，可同步更新"
+        : result.status === "would-install"
+          ? "目标缺失，可重新安装"
+          : "符号链接有变化，可重新链接";
+    lines.push(
+      `${colorTag("UPDATE")} ${result.skill} @ ${result.agentKey}: ${action}${
+        result.target ? ` -> ${result.target}` : ""
+      }`,
+    );
+  }
+  for (const result of issues) {
+    lines.push(
+      `${colorTag("WARN")} ${result.skill} @ ${result.agentKey}: ${
+        result.message || result.status
+      }`,
+    );
+  }
+
+  if (pending.length === 0 && issues.length === 0) {
+    lines.push(`${colorTag("PASS")} 本地安装 ${results.length} 个，全部为最新`);
+  } else {
+    lines.push(
+      `${colorTag("INFO")} 本地安装 ${results.length} 个：${pending.length} 个可同步，${issues.length} 个异常`,
+    );
+  }
+  return lines;
+}
+
+function printInstalledUpdateCheck(results) {
+  console.log(`${colorTag("INFO")} 本地安装更新检查`);
+  for (const line of installedUpdateCheckLines(results)) {
+    console.log(line);
   }
 }
 
 async function runUpdate(flags, context = {}) {
   const interactive = context.interactive ?? isInteractive();
-  const noSync = Boolean(flags["no-sync"]);
+  const check = context.checkUpdate || checkUpdate;
+  const applyUpdate = context.performUpdate || performUpdate;
+  const ui = context.ui || tui;
 
   let info;
   if (interactive) {
-    info = await tui.withSpinner(
-      { start: "检查更新…", success: "检查完成", failure: "检查更新失败" },
-      () => checkUpdate(),
+    info = await ui.withSpinner(
+      { start: "检查本地仓库更新…", success: "检查完成", failure: "检查更新失败" },
+      () => check(),
     );
-    await tui.note(updateInfoLines(info).join("\n"), "更新检查");
+    await ui.note(updateInfoLines(info).join("\n"), "本地仓库更新检查");
   } else {
-    info = await checkUpdate();
+    info = await check();
     printUpdateInfo(info);
   }
 
@@ -978,87 +1187,165 @@ async function runUpdate(flags, context = {}) {
 
   if (!interactive) {
     if (!flags.yes) {
-      console.log("[INFO] 非交互环境，确认更新请加 --yes");
+      console.log(`${colorTag("INFO")} 非交互环境，确认更新请加 --yes`);
       return 0;
     }
-    const result = await performUpdate(info, { yes: true, noSync });
+    const result = await applyUpdate(info, { yes: true });
     if (result.status === "updated") {
-      console.log(`[PASS] 更新完成，当前版本 ${result.version}`);
-      summarizeSyncResults(result.syncResults);
-      console.log("[INFO] 重新打开 Agent 会话后生效。");
+      console.log(`${colorTag("PASS")} 本地仓库更新完成，当前版本 ${result.version}`);
+      console.log(`${colorTag("INFO")} 如需更新已安装 Skill，请运行 skill-manager sync`);
     }
     return 0;
   }
 
   if (!flags.yes) {
-    const ok = await tui.confirmAction("确认执行更新？", {
+    const ok = await ui.confirmAction("确认更新本地仓库？", {
       initialValue: true,
     });
     if (!ok) {
-      await tui.cancel("已取消更新");
+      await ui.cancel("已取消更新");
       return 0;
     }
   }
 
-  const result = await tui.withSpinner(
+  const result = await ui.withSpinner(
     {
-      start: info.mode === "git" ? "正在 git pull…" : "正在 npm 更新…",
+      start: info.mode === "git" ? "正在更新本地仓库…" : "正在更新 CLI…",
       success: (outcome) =>
         outcome.status === "updated"
-          ? `更新完成：v${outcome.version}`
+          ? `本地仓库已更新：v${outcome.version}`
           : "已跳过",
-      failure: "更新失败",
+      failure: "本地仓库更新失败",
     },
     () =>
-      performUpdate(info, {
+      applyUpdate(info, {
         yes: true,
-        noSync,
         quiet: true,
       }),
   );
 
   if (result.status === "cancelled") {
-    await tui.cancel("已取消更新");
+    await ui.cancel("已取消更新");
     return 0;
   }
   if (result.status === "updated") {
-    const lines = [`${pc.green("✓")} 当前版本 ${pc.bold(result.version)}`];
-    const summary = formatSyncSummary(result.syncResults);
-    if (summary) {
-      lines.push(summary);
-    }
-    await tui.note(lines.join("\n"), "更新完成");
-    await tui.outro("重新打开 Agent 会话后生效");
+    await ui.note(
+      `${pc.green("✓")} 当前版本 ${pc.bold(result.version)}\n${pc.dim("已安装 Skill 未变更；如需同步请选择“更新已安装 Skill”。")}`,
+      "本地仓库更新完成",
+    );
+    await ui.outro("本地仓库已更新");
   }
   return 0;
 }
 
-function runSync(flags) {
-  const results = syncInstalls({
-    dryRun: Boolean(flags["dry-run"]),
-    force: Boolean(flags.force),
+async function runSync(flags, context = {}) {
+  const interactive = context.interactive ?? isInteractive();
+  const ui = context.ui || tui;
+  const force = Boolean(flags.force);
+  const dryRun = Boolean(flags["dry-run"]);
+
+  if (!interactive) {
+    const results = syncInstalls({
+      dryRun,
+      force,
+      packageVersion: packageVersion(),
+    });
+
+    if (results.length === 0) {
+      console.log(`${colorTag("INFO")} 没有记录到通过本 CLI 安装的副本。`);
+      return 0;
+    }
+
+    for (const result of results) {
+      const label =
+        result.status === "up-to-date"
+          ? "OK"
+          : INSTALL_ISSUE_STATUSES.has(result.status)
+            ? "WARN"
+            : "PASS";
+      console.log(
+        `${colorTag(label)} ${result.status}: ${result.skill} @ ${result.agentKey}${
+          result.target ? ` -> ${result.target}` : ""
+        }${result.message ? ` (${result.message})` : ""}`,
+      );
+    }
+    return results.some((result) => INSTALL_ISSUE_STATUSES.has(result.status))
+      ? 1
+      : 0;
+  }
+
+  const preview = syncInstalls({
+    dryRun: true,
+    force,
     packageVersion: packageVersion(),
   });
-
-  if (results.length === 0) {
-    console.log("[INFO] 没有记录到通过本 CLI 安装的副本。");
+  if (preview.length === 0) {
+    await ui.note(
+      `${colorTag("INFO")} 没有记录到通过本 CLI 安装的副本。`,
+      "已安装 Skill 更新检查",
+    );
     return 0;
   }
 
-  for (const result of results) {
-    const label =
-      result.status === "up-to-date"
-        ? "OK"
-        : result.status === "conflict" || result.status === "missing-source"
-          ? "WARN"
-          : "PASS";
-    console.log(
-      `[${label}] ${result.status}: ${result.skill} @ ${result.agentKey}${
-        result.target ? ` -> ${result.target}` : ""
-      }${result.message ? ` (${result.message})` : ""}`,
-    );
+  const pending = preview.filter((result) =>
+    PENDING_INSTALL_STATUSES.has(result.status),
+  );
+  const hasIssues = preview.some((result) =>
+    INSTALL_ISSUE_STATUSES.has(result.status),
+  );
+  await ui.note(
+    installedUpdateCheckLines(preview).join("\n"),
+    "已安装 Skill 更新检查",
+  );
+
+  if (dryRun) {
+    return hasIssues ? 1 : 0;
   }
-  return results.some((result) => result.status === "conflict") ? 1 : 0;
+  if (pending.length === 0) {
+    await ui.outro(hasIssues ? "存在需要处理的安装异常" : "已安装 Skill 均为最新");
+    return hasIssues ? 1 : 0;
+  }
+
+  if (!flags.yes) {
+    const shouldSync = await ui.confirmAction(
+      `发现 ${pending.length} 个已安装 Skill 可更新，是否立即更新？`,
+      { initialValue: true },
+    );
+    if (!shouldSync) {
+      await ui.cancel("已取消更新已安装 Skill");
+      return 0;
+    }
+  }
+
+  const syncResults = await ui.withSpinner(
+    {
+      start: "正在更新已安装 Skill…",
+      success: "已安装 Skill 更新完成",
+      failure: "已安装 Skill 更新失败",
+    },
+    () =>
+      syncInstalls({
+        force,
+        packageVersion: packageVersion(),
+      }),
+  );
+  const lines = [formatSyncSummary(syncResults) || "没有发生变更"];
+  for (const result of syncResults) {
+    if (INSTALL_ISSUE_STATUSES.has(result.status)) {
+      lines.push(
+        `${colorTag("WARN")} ${result.skill} @ ${result.agentKey}: ${
+          result.message || result.status
+        }`,
+      );
+    }
+  }
+  await ui.note(lines.join("\n"), "已安装 Skill 更新结果");
+  await ui.outro("重新打开 Agent 会话后生效");
+  return syncResults.some((result) =>
+    INSTALL_ISSUE_STATUSES.has(result.status),
+  )
+    ? 1
+    : 0;
 }
 
 function addCheck(checks, level, message) {
@@ -1196,13 +1483,13 @@ function collectDoctorChecks(flags) {
 
 function printDoctorChecks(checks) {
   for (const check of checks) {
-    console.log(`[${check.level}] ${check.message}`);
+    console.log(`${colorTag(check.level)} ${check.message}`);
   }
   const errors = checks.filter((check) => check.level === "FAIL").length;
   const warnings = checks.filter((check) => check.level === "WARN").length;
   console.log();
   console.log(
-    `[${errors > 0 ? "FAIL" : "PASS"}] ${checks.length} 项检查，${errors} error(s)，${warnings} warning(s)`,
+    `${colorTag(errors > 0 ? "FAIL" : "PASS")} ${checks.length} 项检查，${pc.bold(String(errors))} error(s)，${pc.bold(String(warnings))} warning(s)`,
   );
 }
 
@@ -1280,8 +1567,16 @@ async function runMenu() {
         label: "卸载 Agent 中的 Skill",
         hint: "清理已安装副本",
       },
-      { value: "check", label: "检查更新", hint: "git / npm registry" },
-      { value: "update", label: "更新并同步", hint: "pull + sync" },
+      {
+        value: "repo-check",
+        label: "检查并更新本地仓库",
+        hint: "有更新时确认",
+      },
+      {
+        value: "skills-check",
+        label: "检查并更新已安装 Skill",
+        hint: "有更新时确认",
+      },
       { value: "doctor", label: "环境诊断", hint: "目录 / 状态 / 副本" },
       { value: "agents", label: "查看 Agent 目录", hint: "支持列表" },
       { value: "exit", label: "退出", hint: "bye" },
@@ -1303,11 +1598,11 @@ async function runMenu() {
         case "uninstall":
           await runUninstall({}, [], { interactive: true });
           break;
-        case "check":
-          await runUpdate({ check: true }, { interactive: true });
-          break;
-        case "update":
+        case "repo-check":
           await runUpdate({}, { interactive: true });
+          break;
+        case "skills-check":
+          await runSync({}, { interactive: true });
           break;
         case "doctor":
           await runDoctor({}, { interactive: true });
@@ -1358,7 +1653,7 @@ async function main(argv = process.argv.slice(2)) {
       case "update":
         return await runUpdate(parsed.flags);
       case "sync":
-        return runSync(parsed.flags);
+        return await runSync(parsed.flags);
       case "doctor":
         return await runDoctor(parsed.flags);
       case "link": {
@@ -1390,4 +1685,6 @@ module.exports = {
   main,
   parseArgs,
   resolveMode,
+  runSync,
+  runUpdate,
 };

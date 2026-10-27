@@ -1,7 +1,7 @@
 {
   "name": "ujoin-skill-manager",
   "version": "0.3.0",
-  "description": "UJoin 自研 AI Skills 全生命周期管理 CLI：查看、安装、卸载、更新，并同步到 Codex / OpenCode / Claude 等 Agent。",
+  "description": "UJoin 自研 AI Skills 全生命周期管理 CLI：查看、安装、卸载、更新本地仓库，并同步到 Codex / OpenCode / Claude 等 Agent。",
   "bin": {
     "skill-manager": "bin/skill-manager.js",
     "skm": "bin/skill-manager.js"

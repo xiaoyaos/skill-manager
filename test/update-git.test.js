@@ -67,7 +67,6 @@ test("detects and applies a git update", async (t) => {
 
   const result = await performUpdate(available, {
     yes: true,
-    noSync: true,
     quiet: true,
   });
   assert.equal(result.status, "updated");

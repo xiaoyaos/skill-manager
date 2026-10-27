@@ -2,7 +2,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { PACKAGE_ROOT, readPackage } = require("./config");
-const { syncInstalls } = require("./install");
 const { commandExists, run, runAsync } = require("./util");
 
 function parseSemver(value) {
@@ -262,7 +261,7 @@ async function checkUpdate(options = {}) {
 }
 
 async function performUpdate(info, options = {}) {
-  const { yes = false, noSync = false, confirm = null, quiet = false } = options;
+  const { yes = false, confirm = null, quiet = false } = options;
   if (info.status !== "available") {
     return { status: "skipped", info };
   }
@@ -309,18 +308,11 @@ async function performUpdate(info, options = {}) {
   const updatedPackage = JSON.parse(
     fs.readFileSync(path.join(info.root, "package.json"), "utf8"),
   );
-  let syncResults = [];
-  if (!noSync) {
-    syncResults = syncInstalls({
-      packageVersion: updatedPackage.version,
-    });
-  }
 
   return {
     status: "updated",
     info,
     version: updatedPackage.version,
-    syncResults,
   };
 }
 
