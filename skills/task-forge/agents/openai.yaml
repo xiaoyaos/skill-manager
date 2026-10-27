@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Forge"
+  short_description: "逐轮单问题澄清任务，达到95%执行准备度后完整确认再执行"
+  default_prompt: "使用 $task-forge 抽丝剥茧地澄清我的任务，达到 95% 执行准备度后先让我完整确认，再开始执行。"
