@@ -1,15 +1,19 @@
 # skill-manager
 
-UJoin 自研 AI Skills 的全生命周期管理 CLI：查看 skill 库、安装到指定 Agent、卸载、检查更新、更新并同步。仓库同时集中维护这些自研 skills。
+UJoin 自研 AI Skills 的全生命周期管理 CLI：查看 skill 库、安装到指定 Agent、卸载、更新本地仓库、检查并同步已安装 Skill。仓库同时集中维护这些自研 skills。
 
 ## 当前内容
 
+周报 Skill 使用 `uj-` 前缀。
+
+- `task-forge`（目录：`skills/task-forge/`）
+- `spec-workflow`（目录：`skills/spec-workflow/`）
 - `nest-lib-gen`（目录：`skills/nest-lib-gen/`）
 - `nest-dev-tools`（目录：`skills/nest-dev-tools/`）
 - `skill-creator-x`（目录：`skills/skill-creator-x/`）
-- `git-weekly-report`（目录：`skills/git-weekly-report/`）
+- `uj-weekly-report`（目录：`skills/uj-weekly-report/`）
 
-`git-weekly-report` 从本地多仓库 Git 提交生成中文周报 Excel，100% 套用 UJoin《个人周报》模板（个人周报——姓名 / 周报周期 / 大类 / 名称 / 目标 / 进展 / 完成状态 / 偏差说明，重点项目 4 行 + 日常工作 4 行）。版式来源是 `skills/git-weekly-report/assets/ujoin-weekly-template.xlsx`，渲染器只替换数据单元格。
+`uj-weekly-report` 从本地多仓库 Git 提交生成中文周报 Excel，100% 套用 UJoin《个人周报》模板（个人周报——姓名 / 周报周期 / 大类 / 名称 / 目标 / 进展 / 完成状态 / 偏差说明，重点项目 4 行 + 日常工作 4 行）。版式来源是 `skills/uj-weekly-report/assets/ujoin-weekly-template.xlsx`，渲染器只替换数据单元格。
 
 ## 仓库边界
 
@@ -65,9 +69,10 @@ npm publish
 | `skill-manager list` | 查看 skill 库、描述和安装状态 |
 | `skill-manager install [skill...]` | 安装 skill 到 Agent |
 | `skill-manager uninstall [skill...]` | 从 Agent 卸载 skill |
-| `skill-manager update` | 检查并拉取最新 CLI / skill 仓库，然后同步副本 |
-| `skill-manager update --check` | 只检查更新，不修改 |
-| `skill-manager sync` | 把已安装的复制副本同步到当前仓库版本 |
+| `skill-manager update` | 更新本地 CLI / Git 仓库，不修改已安装 Skill |
+| `skill-manager update --check` | 只检查本地仓库 / CLI 是否有更新 |
+| `skill-manager sync` | 检查并更新已安装 Skill 副本 |
+| `skill-manager sync --dry-run` | 只检查已安装 Skill 是否有更新 |
 | `skill-manager doctor` | 环境、目录、状态文件、断链和过期副本诊断 |
 | `skill-manager agents` | 查看支持的 Agent 及其 skills 目录 |
 | `skill-manager link` | 把所有 skill 以 symlink 安装到 Agent（默认 OpenCode 全局；Codex 用 `--agent codex`） |
@@ -88,10 +93,10 @@ npm publish
 
 ```bash
 skm                                  # 交互式菜单
-skm i git-weekly-report --agent codex
+skm i uj-weekly-report --agent codex
 skm ls
 skm up --check
-skm un git-weekly-report --agent codex --yes
+skm un uj-weekly-report --agent codex --yes
 ```
 
 通用参数：
@@ -120,13 +125,13 @@ Codex 全局目录：`$CODEX_HOME/skills`，默认 `~/.codex/skills`。
 skill-manager install
 
 # 安装单个 skill 到 Codex 全局
-skill-manager install git-weekly-report --agent codex
+skill-manager install uj-weekly-report --agent codex
 
 # 一次安装全部 skill
 skill-manager install --all --agent codex --yes
 
 # 安装到当前项目的 .codex/skills
-skill-manager install git-weekly-report --agent codex --scope project
+skill-manager install uj-weekly-report --agent codex --scope project
 
 # 本地开发用 symlink
 skill-manager install --all --agent codex --link --yes
@@ -135,13 +140,13 @@ skill-manager install --all --agent codex --link --yes
 安装完成后在 Codex 对话中使用：
 
 ```text
-使用 $git-weekly-report
+使用 $uj-weekly-report
 ```
 
 卸载：
 
 ```bash
-skill-manager uninstall git-weekly-report --agent codex
+skill-manager uninstall uj-weekly-report --agent codex
 skill-manager uninstall --all --agent codex --yes
 ```
 
@@ -153,19 +158,21 @@ skill-manager uninstall --all --agent codex --yes
 ┌  Skill Manager v0.3.0
 │
 ◇  当前状态
-│  Skill 库  4 个
+│  Skill 库  6 个
 │  已安装    1 个副本
 │
 ◆  你想做什么？
-│  ● 查看 Skill 库 (4 个 skill)
+│  ● 查看 Skill 库 (6 个 skill)
 │  ○ 安装 Skill 到 Agent
 │  ○ 卸载 Agent 中的 Skill
-│  ○ 检查更新
-│  ○ 更新并同步
+│  ○ 检查并更新本地仓库
+│  ○ 检查并更新已安装 Skill
 │  ○ 环境诊断
 │  ○ 查看 Agent 目录
 │  ○ 退出
 ```
+
+仓库更新与已安装 Skill 更新是两个独立操作：前者只更新 CLI / Git 仓库，后者只同步 Agent 中由本 CLI 管理的副本。交互式终端各提供一个“检查并更新”入口，均先检查；有更新时再询问是否更新，无更新时提示后返回主页。
 
 操作方式：
 
@@ -191,39 +198,59 @@ Agent 列表 Codex 排在最前：
 
 ## 更新机制
 
-`skill-manager update` 会自动识别安装方式：
+仓库更新与已安装 Skill 更新是两个独立操作，不会互相隐式触发。
 
-### Git checkout（本地仓库 / `npm install -g .` 的 symlink 安装）
+### 更新本地仓库（`skm update`）
 
 ```bash
-skill-manager update --check   # 查看落后多少个提交
-skill-manager update --yes     # git pull --ff-only，然后同步已安装副本
+skill-manager update --check   # 只检查本地仓库 / CLI 是否有更新
+skill-manager update --yes     # 只更新本地仓库 / CLI
 ```
+
+#### Git checkout（本地仓库 / `npm install -g .` 的 symlink 安装）
 
 行为：
 
 - 没有 `origin` remote：提示先配置 remote。
 - 没有 upstream：提示设置 `git branch --set-upstream-to=origin/main`。
 - 工作区有未提交改动：拒绝自动更新，先提交或 stash。
-- 更新成功后，对复制安装的 skill 执行 `sync`；symlink 安装自动指向新代码。
+- 更新成功后只变更本地仓库，不修改 Agent 中已安装的 Skill。
 
-### npm 全局安装（从 registry 安装）
-
-```bash
-skill-manager update --check
-skill-manager update --yes
-```
+#### npm 全局安装（从 registry 安装）
 
 行为：
 
 - 读取 `package.json` 的包名，查询 npm registry 最新版本。
 - 有新版本时执行 `npm install -g <包名>@latest`。
-- 更新后同步已安装副本。
+- 更新后只影响 CLI，不同步已安装 Skill。
+
+### 更新已安装 Skill（`skm sync`）
+
+```bash
+skill-manager sync --dry-run   # 只检查 Agent 中的已安装副本是否有变化
+skill-manager sync             # 按当前仓库内容更新已安装副本
+```
+
+行为：
+
+- 仅处理安装记录中由本 CLI 管理的 Skill 副本。
+- 复制安装会对比源目录与目标副本；符号链接安装会检查链接指向。
+- 可选择在交互式终端中先检查，确认后再更新。
+- 出现冲突或源 Skill 缺失时会单独提示，不会隐式修改本地仓库。
+
+推荐维护流程：
+
+```bash
+skm update --check   # 1. 检查本地仓库
+skm update --yes     # 2. 更新本地仓库
+skm sync --dry-run   # 3. 检查已安装 Skill
+skm sync             # 4. 更新已安装 Skill
+```
 
 **结论：**
 
-- 从 npm registry 安装的用户，`npm update -g ujoin-skill-manager` 就够了；本 CLI 的 `update` 只是把它和 skill 副本同步串起来。
-- 从本地 Git 仓库安装 / symlink 的用户，npm 包更新帮不上忙，需要 `git pull`；`skill-manager update` 会自动处理。
+- `update` 只负责 CLI / Git 仓库，`sync` 只负责 Agent 中已安装的 Skill。
+- 从 npm registry 安装的用户可继续使用 `npm update -g ujoin-skill-manager`；它不会同步 Skill 副本。
 - 当前包未发布时，`update` 会提示“未发布”，回到源码仓库执行 `git pull` 或重新 `npm install -g <path>`。
 
 ## 安装状态
@@ -292,10 +319,12 @@ packages/skill-manager/
 │   ├── update.js              # git/npm 更新检查与执行
 │   └── util.js
 ├── skills/
+│   ├── task-forge/
+│   ├── spec-workflow/
 │   ├── nest-lib-gen/
 │   ├── nest-dev-tools/
 │   ├── skill-creator-x/
-│   └── git-weekly-report/
+│   └── uj-weekly-report/
 ├── test/
 ├── scripts/
 │   ├── link-skills.sh
@@ -305,9 +334,9 @@ packages/skill-manager/
 └── package.json
 ```
 
-## git-weekly-report 的本地配置
+## uj-weekly-report 的本地配置
 
-真实配置放在本机，不进入 Git：
+真实配置放在本机，不进入 Git。配置目录沿用 `git-weekly-report`，以兼容已有配置：
 
 ```text
 ~/.config/git-weekly-report/
@@ -318,12 +347,12 @@ packages/skill-manager/
 仓库内只保留：
 
 ```text
-skills/git-weekly-report/assets/ujoin-weekly-template.xlsx   # 脱敏后的空白模板
-skills/git-weekly-report/references/config.example.json
-skills/git-weekly-report/references/project-map.example.json
+skills/uj-weekly-report/assets/ujoin-weekly-template.xlsx   # 脱敏后的空白模板
+skills/uj-weekly-report/references/config.example.json
+skills/uj-weekly-report/references/project-map.example.json
 ```
 
-首次使用时，按示例创建本地配置，再运行 skill。详细步骤见 `skills/git-weekly-report/SKILL.md`。
+首次使用时，按示例创建本地配置，再运行 skill。详细步骤见 `skills/uj-weekly-report/SKILL.md`。
 
 ## Git remote
 
