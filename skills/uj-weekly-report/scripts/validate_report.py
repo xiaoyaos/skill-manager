@@ -239,6 +239,18 @@ def check_coverage(
         )
         result.error(f"unmapped repos must be confirmed before generating the report: {repos}")
 
+    ignored = commits.get("ignored", [])
+    if isinstance(ignored, list) and ignored:
+        ignored_count = sum(
+            int(item.get("commit_count", 0))
+            for item in ignored
+            if isinstance(item, dict)
+        )
+        result.warning(
+            f"ignored_repos excludes {ignored_count} own commit(s); "
+            "confirm they are not reportable work"
+        )
+
     stats = commits.get("stats", {})
     by_project = stats.get("by_project", {})
     if isinstance(by_project, dict):

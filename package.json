@@ -17,6 +17,7 @@
     "start": "node bin/skill-manager.js",
     "check": "node --check bin/skill-manager.js",
     "test": "node --test",
+    "test:weekly-report": "python3 -m unittest discover -s skills/uj-weekly-report/tests -p 'test_*.py' -v",
     "validate": "bash scripts/validate-skills.sh",
     "link": "bash scripts/link-skills.sh",
     "unlink": "bash scripts/unlink-skills.sh",

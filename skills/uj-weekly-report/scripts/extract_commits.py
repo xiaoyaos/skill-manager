@@ -351,8 +351,14 @@ def collect_commits(
     ignored: set[str],
     all_branches: bool,
     exclude_merge: bool,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+]:
     deduplicated: dict[tuple[str, str, str], dict[str, Any]] = {}
+    ignored_groups: dict[str, list[dict[str, Any]]] = {}
     errors: list[str] = []
 
     for repo_path in repos:
@@ -360,9 +366,6 @@ def collect_commits(
             repo = repo_path.relative_to(workspace).as_posix()
         except ValueError:
             continue
-        if repo in ignored:
-            continue
-
         try:
             log_rows = read_git_log(
                 repo_path,
@@ -392,6 +395,10 @@ def collect_commits(
                 "subject": subject,
                 "norm": normalized,
             }
+
+            if repo in ignored:
+                ignored_groups.setdefault(repo, []).append(candidate)
+                continue
 
             existing = deduplicated.get(key)
             if existing is None:
@@ -430,7 +437,18 @@ def collect_commits(
             }
         )
 
-    return commits, unmapped, errors
+    ignored_commits = [
+        {
+            "repo": repo,
+            "commit_count": len(items),
+            "sample_commits": [
+                f"{item['date']} {item['norm']}" for item in items[:3]
+            ],
+        }
+        for repo, items in sorted(ignored_groups.items())
+    ]
+
+    return commits, unmapped, ignored_commits, errors
 
 
 def build_payload(
@@ -441,6 +459,7 @@ def build_payload(
     repos: list[Path],
     commits: list[dict[str, Any]],
     unmapped: list[dict[str, Any]],
+    ignored: list[dict[str, Any]],
     errors: list[str],
 ) -> dict[str, Any]:
     workspace: Path = settings["workspace"]
@@ -476,6 +495,7 @@ def build_payload(
         "authors": settings["authors"],
         "commits": commits,
         "unmapped": unmapped,
+        "ignored": ignored,
         "stats": {
             "total": len(commits),
             "scanned_repos": len(repos),
@@ -486,6 +506,8 @@ def build_payload(
             "missing_repos": missing_repos,
             "projects_without_commits": projects_without_commits,
             "ignored_repos": settings["ignored_sorted"],
+            "ignored_repos_with_commits": len(ignored),
+            "ignored_commit_count": sum(item["commit_count"] for item in ignored),
             "errors": errors,
         },
     }
@@ -511,6 +533,17 @@ def print_summary(payload: dict[str, Any], output: Path) -> None:
             print(f"  {item['repo']}: {item['commit_count']} commit(s)")
             for sample in item["sample_commits"]:
                 print(f"    - {sample}")
+
+    if payload["ignored"]:
+        print("\nIgnored repos (excluded from the report; review before generating):")
+        for item in payload["ignored"]:
+            print(f"  {item['repo']}: {item['commit_count']} own commit(s)")
+            for sample in item["sample_commits"]:
+                print(f"    - {sample}")
+        print(
+            "  Total own commits excluded by ignored_repos: "
+            f"{stats['ignored_commit_count']}"
+        )
 
     if stats["missing_repos"]:
         print("\nMissing repos from project map:")
@@ -591,7 +624,7 @@ def main(argv: list[str] | None = None) -> int:
         start, end = resolve_period(args)
         settings = resolve_settings(args)
         repos = discover_repos(settings["workspace"], settings["scan_depth"])
-        commits, unmapped, errors = collect_commits(
+        commits, unmapped, ignored, errors = collect_commits(
             workspace=settings["workspace"],
             repos=repos,
             authors=set(settings["authors"]),
@@ -609,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
             repos=repos,
             commits=commits,
             unmapped=unmapped,
+            ignored=ignored,
             errors=errors,
         )
         output = Path(args.output).expanduser()

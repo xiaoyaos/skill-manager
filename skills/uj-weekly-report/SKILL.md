@@ -1,5 +1,5 @@
 ---
-name: git-weekly-report
+name: uj-weekly-report
 description: 从本地多仓库 Git 提交生成中文周报 Excel，100% 套用 UJoin《个人周报》模板（个人周报——姓名 / 周报周期 / 大类 / 名称 / 目标 / 进展 / 完成状态 / 偏差说明，重点项目 4 行 + 日常工作 4 行）。用于用户说“写周报 / 上周周报 / 工作周报 / weekly report / Git 提交汇总”时，自动扫描工作区仓库、按作者和周归并提交、生成单周周报并校验模板一致性。仅处理本地已 clone 的 Git 仓库，不替代人工确认。
 ---
 
@@ -31,7 +31,7 @@ description: 从本地多仓库 Git 提交生成中文周报 Excel，100% 套用
 本 skill 的脚本都在 `scripts/` 下，模板在 `assets/` 下。下文用 `$SKILL_DIR` 表示本 `SKILL.md` 所在目录：
 
 ```bash
-SKILL_DIR="${SKILL_DIR:-$HOME/.agents/skills/git-weekly-report}"
+SKILL_DIR="${SKILL_DIR:-$HOME/.agents/skills/uj-weekly-report}"
 ```
 
 ## 模板
@@ -59,7 +59,7 @@ SKILL_DIR="${SKILL_DIR:-$HOME/.agents/skills/git-weekly-report}"
 
 ## 本地配置
 
-真实配置放在本机，不提交到 Git：
+真实配置放在本机，不提交到 Git。配置目录沿用 `git-weekly-report`，以兼容已有配置：
 
 ```text
 ~/.config/git-weekly-report/
@@ -149,9 +149,10 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
 - 排除 merge commit。
 - 按 author date 归入 ISO 周。
 - 按“仓库 + 日期 + 归一化标题”去重。
-- 输出 `commits.json`，包含 `commits`、`unmapped`、`stats`。
+- 输出 `commits.json`，包含 `commits`、`unmapped`、`ignored`、`stats`。
+- `ignored` 记录 `ignored_repos` 中符合作者和日期范围的本人提交，不能静默跳过。
 
-### 3. 处理未归类仓库
+### 3. 处理未归类与被忽略仓库
 
 如果 `unmapped` 不为空，先不要生成周报。把仓库名、提交数、样例提交列给用户，让用户选择：
 
@@ -160,6 +161,12 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/extract_commits.py" \
 - 忽略：加入 `ignored_repos`。
 
 更新 `~/.config/git-weekly-report/project-map.json` 后重新运行提取。确认 `unmapped` 为空，或用户明确同意忽略。
+
+每次生成周报前还必须检查 `ignored` 和 `stats.ignored_commit_count`：
+
+- 如果 `ignored` 非空，先向用户列出被排除的仓库、本人提交数和样例提交。
+- 只有用户明确确认这些提交不属于本周报范围时，才能继续生成。
+- 如果属于工作内容，优先移到 `projects`，不要为了消掉提示继续保留在 `ignored_repos`。
 
 ### 4. 生成 report.json
 
@@ -341,6 +348,7 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/validate_report.py" \
 - [ ] 周期正确，和用户说的“上周”一致。
 - [ ] `stats.total` 与预期提交数一致。
 - [ ] `unmapped` 已处理。
+- [ ] `ignored` 已审查，`stats.ignored_commit_count` 已向用户说明。
 - [ ] 每个有提交的项目都有对应周报条目。
 - [ ] 每个条目都有 `evidence.commit_count > 0`。
 - [ ] 重点项目 3-4 条，日常工作 2-4 条。
@@ -363,6 +371,12 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/validate_report.py" \
 - 不要静默忽略。把仓库和样例提交列给用户确认。
 - 确认后更新 `project-map.json`，再重新提取。
 
+**有被忽略仓库的本人提交**
+
+- 不要只看 `stats.total`。同时检查 `ignored` 和 `stats.ignored_commit_count`。
+- 如果被排除的是实际工作，把仓库加入对应 `projects`，然后重新提取。
+- 如果确认不需要进入周报，保留 `ignored_repos`，但仍需在本次处理中向用户说明数量。
+
 **超过 4 条放不下**
 
 - 模板每个大类只有 4 行，不能加行。
@@ -375,9 +389,9 @@ uv run --with openpyxl python "$SKILL_DIR/scripts/validate_report.py" \
 
 **OpenCode 看不到新 skill**
 
-- 确认 `~/.agents/skills/git-weekly-report` 是 symlink 且指向本仓库。
+- 确认 `~/.agents/skills/uj-weekly-report` 是 symlink 且指向本仓库。
 - 重开一个 OpenCode 会话。
-- 如果 symlink 不被识别，运行 `skill-manager install git-weekly-report --agent opencode` 做复制安装。
+- 如果 symlink 不被识别，运行 `skill-manager install uj-weekly-report --agent opencode` 做复制安装。
 
 ## 参考
 

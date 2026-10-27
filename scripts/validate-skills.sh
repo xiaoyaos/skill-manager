@@ -21,6 +21,10 @@ echo "== CLI tests =="
 node --test
 
 echo
+echo "== Weekly report tests =="
+python3 -m unittest discover -s skills/uj-weekly-report/tests -p 'test_*.py' -v
+
+echo
 echo "== Skills =="
 if command -v uv >/dev/null 2>&1; then
   uv run --with pyyaml python scripts/validate_skills.py

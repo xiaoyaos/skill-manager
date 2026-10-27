@@ -28,8 +28,19 @@
     }
   ],
   "unmapped": [],
+  "ignored": [
+    {
+      "repo": "vendor/legacy",
+      "commit_count": 2,
+      "sample_commits": [
+        "2026-10-20 示例被忽略提交"
+      ]
+    }
+  ],
   "stats": {
     "total": 16,
+    "ignored_commit_count": 2,
+    "ignored_repos_with_commits": 1,
     "by_project": {
       "Example Platform": 12,
       "Example Tooling": 4

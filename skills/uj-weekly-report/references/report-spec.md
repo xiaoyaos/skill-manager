@@ -1,6 +1,6 @@
 # 周报规范
 
-本文件定义 `git-weekly-report` 的数据契约、写作口径和 Excel 模板。脚本和模型都以此为准。
+本文件定义 `uj-weekly-report` 的数据契约、写作口径和 Excel 模板。脚本和模型都以此为准。
 
 ## 1. 数据流
 
@@ -15,6 +15,12 @@ git log
 - `report.json` 由模型根据 `commits.json` 编写，是唯一需要人工/模型判断的中间产物。
 - `.xlsx` 由 `scripts/render_report.py` 生成，不手改；改内容请改 `report.json` 后重新渲染。
 - `scripts/validate_report.py` 负责覆盖、字段、证据和模板一致性校验。
+
+`commits.json` 中的 `ignored` 不得被静默丢弃：
+
+- `ignored` 只包含 `ignored_repos` 中符合作者和日期范围的本人提交。
+- `stats.ignored_commit_count` 是这些提交的总数；`stats.ignored_repos_with_commits` 是有本人提交的仓库数。
+- 生成 `report.json` 前必须审查并按需向用户说明 `ignored`。实际工作应改映射到 `projects`，只有明确不需要进入周报的仓库才保留在 `ignored_repos`。
 
 ## 2. 周期
 
@@ -208,6 +214,7 @@ git log
 
 ### 警告（建议修复）
 
+- `ignored` 非空：确认被 `ignored_repos` 排除的本人提交不属于本周报范围。
 - 重点项目不在 3-4 条。
 - 日常工作不在 2-4 条。
 - 总条目超过 8 条。
